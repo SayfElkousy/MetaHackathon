@@ -1,0 +1,135 @@
+# Dataset registry.
+# Every field carries a verification state. "verified" means the value was read from the
+# cited official page on `verified_on`. "unverified" means the page could not be read
+# by this tooling (e.g. JavaScript-rendered or bot-protected) or did not state it; the
+# value MUST be confirmed manually before use. Nothing is filled in from memory.
+# Last audit: 2026-10-24 (automated fetch of official pages + Europe PMC API).
+
+oai:
+  name: Osteoarthritis Initiative (OAI)
+  official_source: https://nda.nih.gov/oai/
+  verified_on: "2026-10-24"
+  page_readable: false
+  page_note: "nda.nih.gov/oai pages returned an empty JavaScript shell to the audit tool; NOTHING below about OAI is verified."
+  publication: {value: "unknown", state: unverified}
+  access_procedure: {value: "NIMH Data Archive (NDA) account and data access request/use certification expected; confirm on NDA site", state: unverified}
+  availability: {value: "unknown", state: unverified}
+  license_permitted_use: {value: "NDA data use certification terms; commercial use terms unknown", state: unverified}
+  subjects: {value: unknown, state: unverified}
+  exams: {value: unknown, state: unverified}
+  formats: {value: "DICOM expected; confirm", state: unverified}
+  sequences: {value: unknown, state: unverified, note: "Audit actual per-subject/side/visit sequence metadata before pairing (e.g. 3D DESS availability per knee)."}
+  physical_metadata: {value: "DICOM geometry expected if DICOM; confirm", state: unverified}
+  labels: {value: "none assumed for ACL; no native ACL masks, stump masks or repair outcomes assumed", state: unverified}
+  bilateral_pairing: {value: "possible only for participants with eligible MRI of both knees at the same visit - must be audited, not assumed", state: unverified}
+  longitudinal_pairing: {value: "multiple visits expected; audit per subject", state: unverified}
+  population_limitations: "Osteoarthritis cohort (older adults with/at risk of knee OA). NOT a substitute for young patients with acute ACL rupture: distribution shift in age, bone shape, cartilage status, and injury prevalence."
+  role: ["unlabeled anatomy pretraining", "bone/joint geometry modelling", "bilateral registration research", "left-right asymmetry quantification"]
+  missing_labels_blocking: ["ACL voxel masks (tasks B, E)", "torn-ACL remnant masks (task C)", "footprint landmarks (task E)", "repair outcomes"]
+  adapter: oai
+  download_mode: user_provided_archive  # never automated; requires NDA approval
+
+oai_zib:
+  name: OAI-ZIB (manual knee bone and cartilage segmentations on OAI MRI)
+  official_source: https://doi.org/10.12752/4.ATEZ.1.0
+  landing_page: https://opus4.kobv.de/opus4-zib/frontdoor/index/index/docId/6995
+  verified_on: "2026-10-24"
+  page_readable: true
+  archive_audited: true
+  archive_sha256: 361d0179cb3ef82b742a1bc8cb321caf4a75a02f5379c4993bd3cfb20f35caf7
+  publication: {value: "Ambellan F, Tack A, Ehlke M, Zachow S. Automated segmentation of knee bone and cartilage combining statistical shape knowledge and convolutional neural networks: Data from the Osteoarthritis Initiative. Medical Image Analysis 52(2):109-118, 2019", state: verified}
+  access_procedure: {value: "Public download (89,972,103-byte zip) from ZIB; MR images are NOT included and must be obtained from OAI via NDA (doc/oai_mri_paths.txt gives the OAI image path per participant)", state: verified}
+  download_url: http://www.zib.de/ext-data/2019_ATEZ_MEDIA-Supplementary-Material-OAI-ZIB.zip
+  license_permitted_use: {value: "CC BY 4.0 for the deposited supplementary material (segmentations). Image terms follow OAI/NDA.", state: verified}
+  subjects: {value: "507 OAI participants in segmentation/ (one mask each); classification/ adds 116 masks of which 108 are the same participants and the same image path", state: verified}
+  exams: {value: "507 bone+cartilage masks (segmentation/); 116 masks with labels 0-2 (classification/). Landing page also mentions 88 additional cartilage segmentations - not reconciled with the 116", state: verified}
+  formats: {value: "MetaImage .mhd/.raw, uint8, 160x384x384, spacing 0.7x0.365x0.365 mm", state: verified}
+  sequences: {value: "not stated in archive; spacing/matrix consistent with a sagittal 3D acquisition - confirm from OAI DICOM", state: unverified}
+  physical_metadata: {value: "MetaImage headers have identity TransformMatrix with AnatomicalOrientation=RPI (internally inconsistent); take geometry from paired OAI DICOM", state: verified}
+  labels: {value: "segmentation/: values 0-4 present in all sampled masks; meanings NOT documented in archive. Inferred (unconfirmed) 1=femur, 2=femoral cartilage, 3=tibia, 4=tibial cartilage - see configs/label_maps/oai_zib.yaml", state: partially_verified}
+  official_split: {value: "published 2-fold cross-validation lists (253/254 IDs); no train/test split", state: verified}
+  bilateral_pairing: {value: "not possible within OAI-ZIB: one knee per participant; side not stated in archive", state: verified}
+  longitudinal_pairing: {value: "not within OAI-ZIB (one scan per participant)", state: verified}
+  population_limitations: "Derived from OAI: same OA-cohort distribution shift. Participant IDs are OAI IDs -> pseudonymised in the OAI namespace for leakage control."
+  role: ["femur/tibia (and cartilage) segmentation training (task A) once OAI images are obtained and the label map is confirmed"]
+  must_not_be_used_as: "ACL ground truth"
+  derived_from: oai
+  missing_labels_blocking: ["any ACL label (tasks B, C, E)", "paired MR images (NDA access) for any training"]
+  oai_zib_cm_note: "A DOI 10.12752/10.ZIB-CM tried during audit returned 404; the OAI-ZIB-CM variant is unverified."
+  adapter: oai_zib
+  download_mode: public_http
+
+skm_tea:
+  name: SKM-TEA (Stanford Knee MRI with Multi-Task Evaluation)
+  official_source: https://github.com/StanfordMIMI/skm-tea/blob/main/DATASET.md
+  other_sources: [https://aimi.stanford.edu/datasets/skm-tea-knee-mri, https://github.com/StanfordMIMI/skm-tea]
+  verified_on: "2026-10-24"
+  page_readable: true
+  publication: {value: "Desai AD, Schmidt AM, Rubin EB, et al. SKM-TEA: A Dataset for Accelerated MRI Reconstruction with Dense Image Labels for Quantitative Clinical Evaluation. NeurIPS Datasets and Benchmarks Track (Round 2), 2021. https://openreview.net/forum?id=YDMFgD_qJuA", state: verified}
+  dataset_doi: https://doi.org/10.71718/2ghb-nv62
+  access_procedure: {value: "Stanford AIMI: create/log in to account, then download (DATASET.md links stanfordaimi.azurewebsites.net; AIMI page links stanford.redivis.com/datasets/5r8z-achpw6q4f)", state: verified}
+  availability: {value: "available via AIMI/Redivis at audit time", state: verified}
+  license_permitted_use: {value: "Code: MIT. Dataset terms not stated on the pages read; AIMI has a separate commercial-use page (https://aimi.stanford.edu/datasets-commercial-use) - read and record before use", state: unverified}
+  subjects: {value: "not stated (annotation JSON has subject_id and timepoint fields)", state: verified}
+  exams: {value: "155 qDESS knee scans (patients at Stanford Healthcare)", state: verified}
+  formats: {value: "DICOM track: HDF5 per scan (echo1, echo2, seg one-hot X*Y*Z*6, stats); NIfTI masks; DICOMs 'for visualization'; all_metadata.csv; COCO-like JSON annotations. Raw track: HDF5 k-space/maps/target (complex64)", state: verified}
+  size: {value: "900 GB compressed / 1.6 TB expanded; tracks cannot be downloaded separately", state: verified}
+  sequences: {value: "3D quantitative DESS, 2 echoes", state: verified}
+  physical_metadata: {value: "per-scan voxel_spacing, matrix_shape and orientation in annotation JSON (example: 0.3125x0.3125x0.8 mm, SI/AP/LR)", state: verified}
+  labels: {value: "tissue masks: patellar cartilage, femoral cartilage, tibial cartilage medial/lateral, meniscus medial/lateral (6 classes). Pathology: 3D bounding boxes for 16 pathology categories extracted from radiology reports, with confidence 0-5. NO bone masks, NO ACL voxel masks.", state: verified}
+  official_split: {value: "86 train / 33 val / 36 test scans (annotations v1.0.0 train/val/test.json); whether split is subject-level not stated", state: verified}
+  bilateral_pairing: {value: "not documented; do not assume", state: verified}
+  longitudinal_pairing: {value: "timepoint field exists; extent unknown", state: partially_verified}
+  population_limitations: "Single institution, single sequence (qDESS), clinical patients; small n."
+  role: ["cartilage/meniscus segmentation (task A, other structures)", "representation learning", "scanner/sequence generalisation"]
+  missing_labels_blocking: ["bone masks (task A femur/tibia)", "ACL voxel masks (tasks B, C)", "bilateral pairs (task E)"]
+  notes: "Use the DICOM/image track only; do not download raw k-space for this project. Pathology bounding boxes are not voxel labels."
+  adapter: skm_tea
+  download_mode: user_provided_archive
+
+mrnet:
+  name: MRNet
+  official_source: https://stanfordmlgroup.github.io/competitions/mrnet/
+  other_sources: [https://aimi.stanford.edu/datasets/mrnet-knee-mris]
+  verified_on: "2026-10-24"
+  page_readable: true
+  publication: {value: "PLOS Medicine 2018, doi:10.1371/journal.pmed.1002699 (author list not shown on pages read)", state: partially_verified}
+  dataset_doi: https://doi.org/10.71718/rcbp-8c35
+  access_procedure: {value: "Stanford AIMI / Redivis download (https://stanford.redivis.com/datasets/4a2c-4cpkzrn2c), v1.0", state: verified}
+  license_permitted_use: {value: "terms headings present on AIMI page but text not readable by audit tool", state: unverified}
+  subjects: {value: "1,312 patients (sum of split patient counts)", state: verified}
+  exams: {value: "1,370 exams: train 1,130 (1,088 patients), validation/tuning 120 (111), hidden test 120 (113)", state: verified}
+  formats: {value: "distributed file format not stated on pages read", state: unverified}
+  sequences: {value: "coronal T1, coronal T2 fat-sat, sagittal PD, sagittal T2 fat-sat, axial PD fat-sat; GE Discovery; 56.6% at 3.0 T, rest 1.5 T", state: verified}
+  physical_metadata: {value: "voxel spacing/orientation/DICOM headers not stated -> treat as ABSENT until shown otherwise; physical export disabled", state: verified}
+  labels: {value: "exam-level: abnormal (80.6%), ACL tear (23.3%), meniscal tear (37.1%), from clinical reports; test labels by majority vote of 3 MSK radiologists", state: verified}
+  official_split: {value: "patient-level split (all exams of a patient in one set); test set hidden for the closed competition", state: verified}
+  bilateral_pairing: {value: "not documented", state: verified}
+  longitudinal_pairing: {value: "not documented", state: verified}
+  population_limitations: "Single institution (Stanford), GE scanners, clinical population; 2D multi-planar series not suitable for stacking."
+  role: ["auxiliary exam-level ACL-tear classification baseline (task D)", "representation learning"]
+  must_not_be_used_as: "ACL segmentation, stump annotation, fibre correspondence, or millimetre geometry"
+  missing_labels_blocking: ["any voxel label (tasks A, B, C)", "physical geometry (task E, design export)"]
+  adapter: mrnet
+  download_mode: user_provided_archive
+
+knee_mri_rijeka:
+  name: KneeMRI (Clinical Hospital Centre Rijeka; Stajduhar et al.)
+  official_source: http://www.riteh.uniri.hr/~istajduh/projects/KneeMRI/
+  verified_on: "2026-10-24"
+  page_readable: false
+  page_note: "blocked by a web application firewall during audit. Mentioned here only because Awan et al. 2022 (Sensors 22:1552) used it; all fields unverified."
+  exams: {value: "917 per Awan et al. 2022 description (secondary source)", state: unverified}
+  labels: {value: "ACL condition classes per exam/ROI per secondary source", state: unverified}
+  role: ["candidate auxiliary classification data - verify first"]
+  adapter: none
+  download_mode: none
+
+bilateral_acl_cohort:
+  name: Expert-annotated bilateral ACL cohort (TO BE COLLECTED)
+  official_source: none
+  status: "NOT AVAILABLE. No verified public dataset provides paired injured + contralateral knee MRI with expert ACL/remnant annotations. This is a collection and annotation requirement."
+  specification: docs/COHORT_SPEC.md
+  role: ["tasks C and E: remnant segmentation, bilateral native-anatomy estimation, real-rupture evaluation"]
+  adapter: bilateral_case
+  download_mode: none

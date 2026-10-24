@@ -1,0 +1,12 @@
+# Simplified 1D axial model inputs for the SYNTHETIC demonstration.
+# E_solid_MPa is a PLACEHOLDER to exercise the code. It is not a property of any
+# specific material, process, or degradation state. Replace with measured values
+# (e.g. tensile tests of your printed/braided construct) and cite them.
+E_solid_MPa: 300.0
+E_source: "PLACEHOLDER for software demonstration - not a measured material property"
+k_fixation_N_per_mm: null           # null = rigid fixation assumption (stiffness upper bound)
+fixation_source: "assumption: rigid fixation"
+elongation_mm: 0.5
+sensitivity:
+  E_solid_MPa: [150.0, 300.0, 600.0]
+  area_scale: [0.8, 1.0, 1.2]

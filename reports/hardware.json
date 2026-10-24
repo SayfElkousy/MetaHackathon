@@ -1,0 +1,9 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "cpu_count": 8,
+  "torch": "2.14.1",
+  "cuda": false,
+  "mps": true,
+  "disk_free_gb": 269.8
+}

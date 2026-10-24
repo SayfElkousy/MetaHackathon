@@ -1,0 +1,18 @@
+# Task A baseline (femur/tibia) for real labelled data (e.g. OAI-ZIB once the label map is confirmed).
+# Requires a GPU for practical runtimes; CPU/MPS work but are slow.
+task: A_bone
+out_dir: runs/train/bone_unet
+seed: 0
+spacing_mm: [0.7, 0.7, 0.7]
+patch: [96, 96, 96]
+batch_size: 2
+epochs: 300
+iters_per_epoch: 250
+lr: 0.0003
+fg_prob: 0.67
+channels: [32, 64, 128, 256]
+strides: [2, 2, 2]
+num_res_units: 2
+amp: true
+device: auto
+allow_synthetic: false
