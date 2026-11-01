@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACL Scaffold Designer</title>
+<link rel="stylesheet" href="/web/style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<header id="top"><b>ACL scaffold designer</b> <span id="badge" class="badge">loading</span> <span id="timing"></span></header>
+<main id="main">
+  <section id="left">
+    <div id="view"></div>
+    <div class="bar">
+      <div id="cams"><button data-cam="front">Front</button><button data-cam="side">Side</button><button data-cam="q34">3/4</button><button data-cam="reset">Fit</button></div>
+      <div id="togs"><label><input type="checkbox" id="t_scaf" checked> scaffold</label><label><input type="checkbox" id="t_ghost" checked> ACL outline</label><label><input type="checkbox" id="t_bone" checked> bones</label><label><input type="checkbox" id="t_tun" checked> tunnels</label></div>
+    </div>
+    <div id="err">Loading the 3D library from the internet…</div>
+  </section>
+  <aside id="right">
+    <div class="row"><label for="presets">Start from</label><select id="presets"></select></div>
+    <div id="sliders"></div>
+    <h3>Checks</h3>
+    <ul id="checks"></ul>
+    <div class="row"><button id="save">Save design</button><button id="stl">Export STL</button></div>
+    <div id="sum"></div>
+    <p id="foot">Schematic knee, not patient anatomy. Mechanics and biology not evaluated.</p>
+  </aside>
+</main>
+<script type="module" src="/web/app.js"></script>
+</body></html>

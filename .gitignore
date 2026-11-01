@@ -1,11 +1,5 @@
-.venv/
+outputs/
 __pycache__/
-*.egg-info/
 .pytest_cache/
-# Imaging data and credentials never go into source control.
-data/
-runs/
-workspace/
-credentials*
-*.env
-.env
+.venv/
+.DS_Store

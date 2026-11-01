@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {"name": "1. Check everything (tests + both designs + pictures)", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/check.py", "cwd": "${workspaceFolder}", "console": "integratedTerminal",
+     "env": {"PYTHONPATH": "${workspaceFolder}"}},
+    {"name": "2. Build ACL-in-knee design", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/cli.py", "args": ["--request", "fixtures/acl_context_request.json", "--out", "outputs/acl_context"],
+     "cwd": "${workspaceFolder}", "console": "integratedTerminal", "env": {"PYTHONPATH": "${workspaceFolder}"}},
+    {"name": "3. Build starter design", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/cli.py", "args": ["--request", "fixtures/starter_request.json", "--out", "outputs/starter"],
+     "cwd": "${workspaceFolder}", "console": "integratedTerminal", "env": {"PYTHONPATH": "${workspaceFolder}"}},
+    {"name": "4. Open interactive designer (N3)", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/tools/server.py", "cwd": "${workspaceFolder}", "console": "integratedTerminal",
+     "env": {"PYTHONPATH": "${workspaceFolder}"}}
+  ]
+}

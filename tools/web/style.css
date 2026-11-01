@@ -1,0 +1,33 @@
+:root{--bg:#f3f5f5;--panel:#fff;--ink:#17201f;--muted:#5c6a69;--line:#d3dbdb;--accent:#0f7c74;--stage:#1b2322;
+--pass:#237a3b;--pass-bg:#def1e3;--fail:#b3261e;--fail-bg:#f8e0de;--warn:#8a5a00;--warn-bg:#f6ebd2;--na-bg:#e7ecec}
+*{box-sizing:border-box}
+body{font:14px/1.45 system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+#top{padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+.badge{font:12px ui-monospace,monospace;padding:2px 8px;border-radius:999px;background:var(--na-bg)}
+.badge.busy{background:var(--warn-bg);color:var(--warn)}
+#timing{font:12px ui-monospace,monospace;color:var(--muted)}
+#main{display:grid;grid-template-columns:minmax(0,3fr) minmax(300px,2fr);gap:16px;padding:16px}
+@media (max-width:900px){#main{grid-template-columns:1fr}}
+#view{height:68vh;min-height:360px;background:var(--stage);border-radius:8px;overflow:hidden}
+.bar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-top:8px}
+button,select{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:5px;background:var(--panel);cursor:pointer}
+button:hover{border-color:var(--accent)}
+#togs label{margin-left:10px}
+#err{color:var(--fail);margin-top:8px;min-height:1.4em}
+#right{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;max-height:calc(100vh - 90px);overflow:auto}
+.row{display:flex;gap:8px;align-items:center;margin:6px 0}
+.sl{display:grid;grid-template-columns:1fr auto;gap:0 8px;margin:8px 0}
+.sl label{font-size:13px}
+.sl input{grid-column:1/3;width:100%}
+.sl .val{font:12px ui-monospace,monospace}
+.sl.inactive{opacity:.45}
+.band,.note{grid-column:1/3;font-size:11px;color:var(--muted)}
+h3{margin:14px 0 6px;font-size:14px}
+#checks{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+#checks li{padding:5px 8px;border-radius:5px;font-size:13px;background:var(--na-bg)}
+#checks li.pass{background:var(--pass-bg);color:var(--pass)}
+#checks li.fail{background:var(--fail-bg);color:var(--fail)}
+#checks li.warn{background:var(--warn-bg);color:var(--warn)}
+#checks li b{font-weight:600}
+#sum{font:12px ui-monospace,monospace;color:var(--muted);white-space:pre-wrap;margin-top:8px}
+#foot{font-size:12px;color:var(--muted)}

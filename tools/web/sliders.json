@@ -1,0 +1,23 @@
+{
+  "sliders": [
+    {"id": "diameter", "label": "Strand diameter", "path": "strand.diameter_mm", "unit": "mm", "min": 0.8, "max": 4.0, "step": 0.05, "default": 2.85},
+    {"id": "swing", "label": "Swing a", "path": "architecture.swing_mm", "unit": "mm", "min": 1.0, "max": 8.0, "step": 0.05, "default": 3.55},
+    {"id": "fold_depth", "label": "Fold depth b", "path": "architecture.fold.fold_depth_mm", "unit": "mm", "min": 0.5, "max": 6.0, "step": 0.05, "default": 2.54},
+    {"id": "fold_sharp", "label": "Fold sharpness", "path": "architecture.fold.fold_sharpness", "unit": "", "min": 0.0, "max": 1.0, "step": 0.05, "default": 0.0},
+    {"id": "angle_tibial", "label": "Braid angle tibial", "path": "zones.tibial.braid_angle_deg", "unit": "deg", "min": 5.0, "max": 60.0, "step": 0.5, "default": 35.0, "sets_control": "braid_angle"},
+    {"id": "angle_ligament", "label": "Braid angle ligament", "path": "zones.ligament.braid_angle_deg", "unit": "deg", "min": 5.0, "max": 60.0, "step": 0.5, "default": 20.0, "sets_control": "braid_angle"},
+    {"id": "angle_femoral", "label": "Braid angle femoral", "path": "zones.femoral.braid_angle_deg", "unit": "deg", "min": 5.0, "max": 60.0, "step": 0.5, "default": 35.0, "sets_control": "braid_angle"},
+    {"id": "lig_lambda", "label": "Ligament fiber length", "path": "zones.ligament.path_length_ratio", "unit": "ratio", "min": 1.01, "max": 1.4, "step": 0.005, "default": 1.06, "sets_control": "fiber_length"},
+    {"id": "acl_len", "label": "ACL length", "path": "anatomy.acl_length_mm", "unit": "mm", "min": 22.0, "max": 41.0, "step": 0.5, "default": 32.0, "studied_range": [22.0, 41.0], "source": "L01"},
+    {"id": "sag", "label": "Sagittal inclination", "path": "anatomy.sagittal_inclination_deg", "unit": "deg", "min": 30.0, "max": 65.0, "step": 0.1, "default": 47.4, "studied_range": [37.1, 56.7], "source": "L03"},
+    {"id": "cor", "label": "Coronal inclination", "path": "anatomy.coronal_inclination_deg", "unit": "deg", "min": 55.0, "max": 90.0, "step": 0.1, "default": 75.3, "studied_range": [64.7, 83.9], "source": "L03"},
+    {"id": "side", "label": "Knee side", "path": "anatomy.side", "unit": "", "min": 0, "max": 1, "step": 1, "default": 0, "kind": "toggle", "options": ["right", "left"]},
+    {"id": "realism", "label": "ACL realism", "path": "anatomy.realism", "unit": "", "min": 0, "max": 1, "step": 1, "default": 0, "kind": "toggle", "options": ["schematic", "anatomical"]},
+    {"id": "twist", "label": "ACL twist total", "path": "anatomy.anatomical_twist_total_deg", "unit": "deg", "min": -90, "max": 90, "step": 1, "default": 0, "source": "L13"},
+    {"id": "tear_sev", "label": "Tear severity", "path": "tear.severity", "unit": "", "min": 0, "max": 2, "step": 1, "default": 0, "kind": "toggle", "options": ["intact", "partial", "complete"]},
+    {"id": "tear_loc", "label": "Tear location (0 tibial - 1 femoral)", "path": "tear.location_s", "unit": "fraction", "min": 0.05, "max": 0.95, "step": 0.05, "default": 0.5, "source": "L18"},
+    {"id": "tear_obl", "label": "Tear obliquity", "path": "tear.obliquity_deg", "unit": "deg", "min": 0, "max": 60, "step": 1, "default": 0},
+    {"id": "retr_fem", "label": "Retraction femoral", "path": "tear.retraction_femoral_mm", "unit": "mm", "min": 0, "max": 10, "step": 0.5, "default": 0},
+    {"id": "retr_tib", "label": "Retraction tibial", "path": "tear.retraction_tibial_mm", "unit": "mm", "min": 0, "max": 10, "step": 0.5, "default": 0}
+  ]
+}

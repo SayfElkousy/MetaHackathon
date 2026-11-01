@@ -1,0 +1,96 @@
+{
+ "format": "acl-scaffold-geometry",
+ "schema_version": "2.0.0",
+ "units": {
+  "length": "mm",
+  "angle": "deg",
+  "fraction": "0_to_1"
+ },
+ "concept": "tunnel_spanning_research",
+ "anatomy": {
+  "origin": "prototype_placeholder",
+  "reviewed": false,
+  "envelope": {
+   "type": "ellipse",
+   "width_mm": 10.0,
+   "thickness_mm": 8.0
+  }
+ },
+ "architecture": {
+  "style": "three_strand_plait",
+  "phase_offset_deg": 0.0,
+  "mirror": false,
+  "swing_mm": 3.55,
+  "lift_mm": 2.54,
+  "angle_control_mode": "crossing_tilt"
+ },
+ "strand": {
+  "diameter_mm": 2.85
+ },
+ "zones": [
+  {
+   "id": "tibial",
+   "role": "tibial_extension",
+   "length_mm": 20.0,
+   "braid_tilt_target_deg": 35.0,
+   "material_id": "plga8515",
+   "planned_porogen_fraction": 0.6
+  },
+  {
+   "id": "ligament",
+   "role": "ligament",
+   "length_mm": 30.0,
+   "control": "fiber_length",
+   "path_length_ratio": 1.08,
+   "material_id": "pcl",
+   "planned_porogen_fraction": 0.5
+  },
+  {
+   "id": "femoral",
+   "role": "femoral_extension",
+   "length_mm": 20.0,
+   "braid_tilt_target_deg": 35.0,
+   "material_id": "plga8515",
+   "planned_porogen_fraction": 0.6
+  }
+ ],
+ "transitions": {
+  "length_mm": 4.0
+ },
+ "core": {
+  "enabled": true,
+  "diameter_mm": 0.8,
+  "minimum_cover_mm": 0.2
+ },
+ "porosity": {
+  "mode": "process_plan",
+  "target_pore_size_um": 225.0
+ },
+ "fit": {
+  "mode": "manual"
+ },
+ "mold": {
+  "enabled": true,
+  "profile": "pva_fdm_demo",
+  "lead_length_mm": 10.0,
+  "funnel_depth_mm": 3.0
+ },
+ "quality": {
+  "preview_tol_mm": 0.1,
+  "export_tol_mm": 0.03
+ },
+ "materials": [
+  {
+   "id": "plga8515",
+   "label": "PLGA 85/15",
+   "physical_form": "cast_matrix_proposal",
+   "verified_property_record": null
+  },
+  {
+   "id": "pcl",
+   "label": "PCL",
+   "physical_form": "cast_matrix_proposal",
+   "verified_property_record": null
+  }
+ ]
+}

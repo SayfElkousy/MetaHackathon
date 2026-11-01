@@ -1,0 +1,17 @@
+{
+  "native_containment": "Sticks out of the natural ACL by {actual:.1f} mm: reduce fold depth or strand diameter (or update the ACL thickness from MRI).",
+  "strand_gap": "Strands overlap: increase swing or reduce strand diameter.",
+  "block_wall": "Mold wall {actual:.2f} mm is below 0.8 mm: reduce swing, fold depth or diameter.",
+  "tube_mold_feasible": "Gap {actual:.2f} mm is below 1.7 mm: a tube mold is not feasible (block mold only).",
+  "bone_clearance_schematic": "Scaffold touches the tibia outside the tunnel.",
+  "flare": "Insertion flare {actual:.2f} differs from target {target:.2f}.",
+  "fiber_length": "Fiber length {actual:.3f} vs target {target:.3f}: the zone is too short to hold that much braid; lower the target or lengthen the zone.",
+  "inclination": "Axis angle off target: check the sagittal and coronal inputs.",
+  "uses_assumptions": "Some inputs are placeholders: {list}.",
+  "process_compat": "Manufacturing compatibility not evaluated.",
+  "mechanical_validation": "Mechanics not evaluated in this release.",
+  "biological_validation": "Biology not evaluated in this release.",
+  "bundle_inside_acl": "Bundle surface reaches {actual:.2f} of the ACL envelope (limit 1.00): check bundle offsets (anatomical mode).",
+  "stump_closure": "Stump cut faces have {actual} open edges: lower the tear obliquity or move the tear location.",
+  "fallback": "{check_id}: {status}. See validation.json."
+}

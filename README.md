@@ -1,97 +1,109 @@
-# bilacl: bilateral knee MRI ACL anatomy estimation and scaffold hypothesis research platform
+# ACL Scaffold Geometry Engine
 
-Research software that combines MRI of an injured knee with MRI of the contralateral knee to **estimate** native ACL geometry. It then generates **investigational** scaffold geometry under explicit assumptions.
+Builds a three-strand braided ACL scaffold, places it inside a simple 3D knee,
+checks it, and saves files you can look at. This is Muse's code (milestones M1,
+N1, N2), assembled into one project and fixed so it runs. See `REPORT.md` for
+what was changed.
 
-> **Not a medical device. Not for clinical decisions.** Restoring external shape is not restoring biological function. Nothing here shows that any scaffold heals an ACL or reduces reinjury. Routine MRI does not resolve individual collagen fibres, and the internal pathways produced here are **hypothesized guidance architecture**, not recovered fibres. Current status is in [docs/STATUS.md](docs/STATUS.md).
+**New here?** Read [USER_GUIDE.md](USER_GUIDE.md) for how to use the designer. The next prompt for Muse
+is in [MUSE_NEXT_PROMPT.md](MUSE_NEXT_PROMPT.md).
 
-## Evidence levels (carried in data, files, CLI output and UI badges)
+## One-time setup (about 10 minutes)
 
-| level | meaning |
-|---|---|
-| `observed` | Directly annotated in the input imaging |
-| `estimated` | Model or registration-derived anatomy |
-| `hypothesized` | Generated internal architecture or correspondences from priors |
-| `validated` | Supported by actual evaluation data (none yet) |
-| `synthetic` | Produced from software phantoms; no clinical meaning |
+1. **Install Python** 3.11 or newer from <https://www.python.org/downloads/>.
+   On Windows, tick **"Add python.exe to PATH"** in the installer.
+2. **Install VS Code** from <https://code.visualstudio.com/>, then install the
+   **Python** extension (from Microsoft) inside VS Code: the square Extensions
+   icon on the left, search "Python", click Install.
+3. **Open this folder** in VS Code: File → Open Folder… → pick `acl_engine_project`.
+4. **Make a virtual environment** (a private copy of Python for this project):
+   press `Ctrl+Shift+P` (Mac: `Cmd+Shift+P`), type **"Python: Create Environment"**,
+   choose **Venv**, pick your Python, and tick `requirements.txt` when asked.
+   VS Code installs everything for you. If it doesn't ask about requirements,
+   open a terminal (Terminal → New Terminal) and run:
+   ```
+   pip install -r requirements.txt
+   ```
 
-## Install
+## Running it
 
-Python 3.12 (PyTorch has no wheels for the system Python 3.15). Using [uv](https://github.com/astral-sh/uv):
-
-```bash
-uv python install 3.12
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[test]'
-.venv/bin/python -m pytest -q          # 48 tests
-```
-
-## Commands (all implemented and exercised)
-
-```bash
-B=.venv/bin/bilacl
-
-# audit & data
-$B hardware
-$B registry --markdown                                   # dataset registry with verification state
-$B acquire report --out reports/acquisition_report.json  # dry run: local status, sizes, disk, requirements
-$B acquire download oai_zib [--confirm]                  # only public, permitted resources; resumable + sha256
-$B inspect oai_zib data/oai_zib                          # adapters: bilateral_case, local, oai, oai_zib, skm_tea, mrnet
-$B manifest build --sources bilateral_case=workspace/cases --out m.csv
-$B manifest split --manifest m.csv                       # subject-level; preserves official splits; leakage audit
-$B manifest audit --manifest m.csv
-$B manifest subset --manifest m.csv --n-subjects 5 --out dev.csv
-$B tasks --manifest m.csv                                # which tasks are runnable / blocked and why
-
-# imaging
-$B dicom <dicom_dir> --out out/ --convert                # series discovery, ordering by IPP, localizer/gap/duplicate checks
-$B preprocess image.nii.gz --labels labels.nii.gz --spacing 0.5 0.5 0.5 --n4 --out pre/   # + QC before/after
-
-# annotation (3D Slicer)
-$B annotate color-table --out bilacl_labels.ctbl
-$B annotate export-slicer --labels labels.nii.gz --out labels.seg.nrrd
-$B annotate import-slicer --seg edited.seg.nrrd --reference image.nii.gz --out v2.nii.gz --annotator R07 --version 2
-$B annotate agreement --masks readerA.nii.gz readerB.nii.gz
-$B annotate review --record v2.annotation.json --status approved --reviewer R02
-
-# models
-$B train --config configs/train_bone_smoke.yaml --manifest m.csv      # CPU smoke test (synthetic, labelled smoke_test)
-$B train --config configs/train_bone.yaml --manifest real.csv         # real task-A baseline (needs eligible data)
-$B infer --checkpoint run/best.pt --image image.nii.gz --out pred.nii.gz   # saved as UNREVIEWED model prediction
-$B evaluate --pred pred.nii.gz --gt labels.nii.gz --labels 1 2        # Dice/ASSD/HD95/volume, UNKNOWN ignored
-
-# bilateral pipeline
-$B synth --out workspace/cases --seed 0 --injury midsubstance          # SYNTHETIC phantoms (intact|proximal|midsubstance|distal|partial|chronic_absent)
-$B register workspace/cases/SYN0000_midsubstance --out out/
-$B run workspace/cases/SYN0000_midsubstance --out workspace/runs/SYN0000_midsubstance \
-      --scaffold-config configs/scaffold_demo.yaml --mechanics-config configs/mechanics_demo.yaml
-$B review workspace/runs/<case> --status approved --reviewer R02 --select remnant_reconciled
-$B experiment healthy --out workspace/experiments/healthy --n 12       # hold-out anatomy estimation (synthetic unless --cases)
-$B experiment injury  --out workspace/experiments/injury               # SYNTHETIC injury experiment
-
-# interface (binds to 127.0.0.1; imaging stays local)
-$B serve --workspace workspace --port 8765    # http://127.0.0.1:8765
-```
-
-## Pipeline
-
-1. **Import and validate.** DICOM slices are ordered by ImagePositionPatient projected on the slice normal. The importer detects localizers, gaps, duplicates and inconsistent geometry. NIfTI without qform/sform, and bare arrays, are flagged `physical_verified=false`. Orthogonal 2D series are never stacked (`assert_not_stacking`).
-2. **Coordinates.** Everything internal is RAS+ mm with a voxel-to-world affine (`imaging/coords.py`). DICOM LPS is converted with diag(−1, −1, 1). Image interpolation (linear) is separate from label interpolation (nearest, so UNKNOWN=255 survives). Source spacing is always recorded.
-3. **Bilateral registration** (`registration/bilateral.py`). Explicit mirror x → −x, then trimmed rigid ICP **per bone** (femur, then tibia) on joint-cropped surfaces. The contralateral ACL is transferred by a smoothstep blend of the two rigid transforms along the ACL axis. No free-form deformation is used, so registration cannot invent ACL shape. QC uses surface distances plus **independent** landmarks that never drive the registration.
-4. **Anatomy estimates** (`estimation/anatomy.py`). `contralateral_mirror` and `remnant_reconciled`. The latter moves the ends toward *observed* injured-side attachments, capped at 4 mm; beyond the cap it flags a conflict instead of correcting. Displaced remnants are reported and not absorbed. Uncertainty is computed **separately** for registration, bilateral asymmetry, and contralateral segmentation.
-5. **Baselines** (`estimation/population.py`). Population reference and bone-conditioned statistical model (PCA + ridge, optional demographic covariates), refit leave-one-subject-out.
-6. **Abstention** (`abstention.py`). Laterality, physical metadata, resolution, contralateral expert confirmation, ICP residuals, independent landmarks, remnant conflicts, uncertainty. **All thresholds are unvalidated engineering settings.**
-7. **Scaffold candidate** (`scaffold/`). Per-station ellipse envelope from the selected estimate. Bridging mode spans the remnant gap plus a user-set overlap; attachments are preserved by default; remnants plus clearance are excluded; channels follow a user-chosen alignment hypothesis. Bridging is refused for partial tears and for knees without remnants. Channel size, wall thickness and material values are required inputs with cited sources; there are no "optimal" defaults.
-8. **Validation and export.** Watertightness, winding, exact self-intersection test, components, minimum feature, channel walls, porosity, bone clearance, remnant overlap. The export gate hard-blocks unverified physical metadata and invalid meshes. Real data also need expert-approved anatomy and no abstention. Output is STL plus metadata JSON (units, frame, affine, source spacing, transforms, assumptions, uncertainty, review status).
-9. **Simplified mechanics** (`mechanics/axial.py`). 1D linear-elastic bar in series, with sensitivity sweeps. Not finite-element; no stress fields.
-
-## Layout
+The easiest way: click the **Run and Debug** icon on the left (triangle with a
+bug), pick **"1. Check everything"** from the dropdown at the top, and press the
+green ▶ button. Or, in the terminal:
 
 ```
-src/bilacl/        package (imaging, annotation, adapters, training, registration, estimation, scaffold, mechanics, evaluation, ui)
-registry/          datasets.yaml (verified registry)
-configs/           training, scaffold, mechanics, label-map configs
-docs/              STATUS, DATASETS, EVIDENCE, ANNOTATION_SPEC, COHORT_SPEC, ROADMAP
-reports/           acquisition report, OAI-ZIB inspection, experiment results, hardware
-tests/             48 tests
-data/, workspace/, runs/   local only (gitignored): imaging, salts, runs
+python check.py
+```
+
+It runs all the tests, builds both example designs, draws a picture of each,
+and prints a summary block between `=====` lines. **Paste that block back to
+Muse** after each milestone.
+
+## Interactive designer (sliders)
+
+Run and Debug → **"4. Open interactive designer (N3)"** → ▶, or in the terminal:
+
+```
+python tools/server.py
+```
+
+Your browser opens the designer. Move a slider and the 3D model rebuilds in about a second,
+with pass/fail checks and hints on the right. **Save design** writes a file into `fixtures/`;
+**Export STL** downloads the scaffold for 3D printing. Press Ctrl+C in the terminal to stop.
+It runs only on your computer, and needs internet the first time to load the 3D library.
+
+## Seeing the results
+
+After a run, look in the `outputs/` folder:
+
+| File | What it is | How to open it |
+|---|---|---|
+| `knee.png` | Picture of the scaffold in the knee, from 3 angles | Click it in VS Code |
+| `knee.glb` | 3D scene you can rotate (scaffold + ACL ghost + bones + tunnels) | Drag into <https://gltf-viewer.donmccurdy.com/>, or install the VS Code extension "glTF Tools" and right-click → glTF: Preview |
+| `scaffold.stl` | Just the scaffold, ready for 3D-printing software | Drag into <https://www.viewstl.com/> |
+| `validation.json` | Pass/fail checks | Click it in VS Code |
+| `context.json` | Knee placement numbers (angles, fit, coverage) | Click it in VS Code |
+| `parameters.json` | Every input and computed value | Click it in VS Code |
+| `migration_report.json` | How an older design file was upgraded, and which defaults were assumed | Click it in VS Code |
+
+## Changing the design
+
+Open `fixtures/acl_context_request.json` in VS Code and edit the numbers, then
+run again. Useful ones:
+
+| Setting | Where | What it changes |
+|---|---|---|
+| `acl_length_mm`, `acl_width_mm`, `acl_thickness_mm` | `anatomy` | Size of the native ACL (the red ghost) |
+| `sagittal_inclination_deg`, `coronal_inclination_deg` | `anatomy` | How steeply the ACL leans |
+| `swing_mm` | `architecture` | How far strands move side to side |
+| `fold_depth_mm` | `architecture.fold` | How far a strand dips to pass under another |
+| `fold_sharpness` | `architecture.fold` | 0 = smooth waves, 1 = sharper over/under steps |
+| `diameter_mm` | `strand` | Thickness of each strand |
+| `braid_angle_deg` | each zone | Angle of the strands at each crossing |
+| `path_length_ratio` | each zone (with `"control": "fiber_length"`) | Fiber length: 1.06 = each strand is 6% longer than the zone |
+
+
+## Project layout
+
+```
+cli.py                 builds one design: python cli.py --request <file> --out <folder>
+check.py               runs everything and prints the summary for Muse
+fixtures/              example designs (JSON)
+acl_engine/            the engine
+  schema.py            checks the design file is valid (schema 4.0.0, migrates 2.0/3.0)
+  records.py           parameter records (value + origin + source + confidence)
+  controls.py          fiber-length closed loop (hits the target to 0.002)
+  export.py            the one shared STL / GLB / JSON writer
+  paths.py             strand paths, crossings, angle and fiber-length control
+  fold.py              over/under shape (fold depth and sharpness)
+  axis.py              straight or curved scaffold axis
+  frames.py            keeps each strand's cross-section from twisting
+  sweep.py             turns strand paths into 3D tubes
+  measure.py           curvature and strand-to-strand gap
+  context.py           knee, native ACL ghost, placement, fit checks
+  glb.py               writes the 3D scene file
+tests/                 automatic tests (22)
+tools/render.py        draws knee.png from knee.glb
+tools/server.py        the interactive designer (N3); page files in tools/web/
+sources.json           the publications each literature value comes from
 ```
