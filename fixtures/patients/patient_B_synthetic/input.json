@@ -1,0 +1,399 @@
+{
+ "schema": "acl-mri-input",
+ "schema_version": "1.0.0",
+ "case_id": "patient_B_synthetic",
+ "synthetic": true,
+ "notes": "SYNTHETIC demonstration case (left knee). Not patient data.",
+ "source": {
+  "model_name": "synthetic-generator",
+  "model_version": "0.1",
+  "run_id": "B-0001",
+  "created": "2026-11-01"
+ },
+ "imaging": {
+  "units": "mm",
+  "voxel_spacing_mm": [
+   0.4,
+   0.4,
+   0.4
+  ],
+  "orientation": "LPS",
+  "coordinate_convention": "image physical mm",
+  "image_to_model": [
+   [
+    0.9781476007338057,
+    -0.20791169081775934,
+    0.0,
+    55.0
+   ],
+   [
+    0.20791169081775934,
+    0.9781476007338057,
+    0.0,
+    -20.0
+   ],
+   [
+    0.0,
+    0.0,
+    1.0,
+    -140.0
+   ],
+   [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "laterality": "left",
+  "acquisition_pose": {
+   "flexion_deg": {
+    "value": 0.0,
+    "status": "measured",
+    "units": "deg"
+   }
+  }
+ },
+ "bone": {
+  "tibia_surface": {
+   "$ref": "tibia_surface.stl",
+   "format": "stl",
+   "units": "mm",
+   "frame": "image",
+   "status": "measured"
+  },
+  "scale": {
+   "bicondylar_width_mm": {
+    "value": 73.0,
+    "status": "measured",
+    "units": "mm",
+    "uncertainty": {
+     "sd": 1.0
+    }
+   },
+   "notch_width_mm": {
+    "value": 17.5,
+    "status": "measured",
+    "units": "mm",
+    "confidence": 0.7
+   },
+   "tibial_plateau_width_mm": {
+    "value": 71.0,
+    "status": "measured",
+    "units": "mm"
+   }
+  }
+ },
+ "attachments": {
+  "tibial": {
+   "center": {
+    "value": [
+     -44.938,
+     38.689,
+     140.0
+    ],
+    "status": "measured",
+    "units": "mm",
+    "confidence": 0.8
+   },
+   "shape": {
+    "kind": "oval",
+    "length_mm": {
+     "value": 15.5,
+     "status": "measured",
+     "units": "mm"
+    },
+    "width_mm": {
+     "value": 10.0,
+     "status": "measured",
+     "units": "mm"
+    }
+   },
+   "bundles": {
+    "AM": {
+     "center": {
+      "value": [
+       -45.574,
+       42.913,
+       140.0
+      ],
+      "status": "inferred",
+      "units": "mm"
+     }
+    },
+    "PL": {
+     "center": {
+      "value": [
+       -44.199,
+       34.953,
+       140.0
+      ],
+      "status": "inferred",
+      "units": "mm"
+     }
+    }
+   }
+  },
+  "femoral": {
+   "boundary": {
+    "value": [
+     [
+      -43.794,
+      18.101,
+      163.5
+     ],
+     [
+      -43.868,
+      17.752,
+      166.624
+     ],
+     [
+      -44.075,
+      16.775,
+      169.129
+     ],
+     [
+      -44.376,
+      15.363,
+      170.519
+     ],
+     [
+      -44.709,
+      13.796,
+      170.519
+     ],
+     [
+      -45.009,
+      12.384,
+      169.129
+     ],
+     [
+      -45.216,
+      11.407,
+      166.624
+     ],
+     [
+      -45.291,
+      11.058,
+      163.5
+     ],
+     [
+      -45.216,
+      11.407,
+      160.376
+     ],
+     [
+      -45.009,
+      12.384,
+      157.871
+     ],
+     [
+      -44.709,
+      13.796,
+      156.481
+     ],
+     [
+      -44.376,
+      15.363,
+      156.481
+     ],
+     [
+      -44.075,
+      16.775,
+      157.871
+     ],
+     [
+      -43.868,
+      17.752,
+      160.376
+     ]
+    ],
+    "status": "measured",
+    "units": "mm",
+    "confidence": 0.6,
+    "note": "segmented footprint outline"
+   },
+   "shape": {
+    "length_mm": {
+     "value": null,
+     "status": "missing",
+     "units": "mm"
+    }
+   }
+  }
+ },
+ "ligament": {
+  "width_profile": {
+   "value": {
+    "s": [
+     0.0,
+     0.2,
+     0.4,
+     0.6,
+     0.8,
+     1.0
+    ],
+    "values": [
+     11.0,
+     10.0,
+     9.2,
+     9.0,
+     9.8,
+     11.2
+    ]
+   },
+   "status": "measured",
+   "units": "mm",
+   "confidence": 0.6
+  },
+  "bundles": {
+   "am_area_fraction": {
+    "value": 0.52,
+    "status": "inferred",
+    "confidence": 0.5
+   }
+  }
+ },
+ "injury": {
+  "type": {
+   "value": "partial",
+   "status": "measured"
+  },
+  "location_s": {
+   "value": 0.68,
+   "status": "measured",
+   "confidence": 0.6
+  },
+  "involvement": {
+   "value": "AM",
+   "status": "measured",
+   "confidence": 0.6
+  },
+  "gap_length_mm": {
+   "value": 3.0,
+   "status": "inferred",
+   "units": "mm"
+  },
+  "continuity_fraction": {
+   "value": 0.15,
+   "status": "inferred",
+   "confidence": 0.3
+  },
+  "mask": {
+   "$ref": "injury_mask.npy",
+   "format": "npy",
+   "voxel_to_image": [
+    [
+     0.4,
+     0.0,
+     0.0,
+     -47.689455894684144
+    ],
+    [
+     0.0,
+     0.4,
+     0.0,
+     19.019646761240043
+    ],
+    [
+     0.0,
+     0.0,
+     0.4,
+     154.57900485924606
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "status": "measured"
+  }
+ },
+ "reference": {
+  "contralateral": {
+   "ligament": {
+    "thickness_profile": {
+     "value": {
+      "s": [
+       0.0,
+       0.25,
+       0.5,
+       0.75,
+       1.0
+      ],
+      "values": [
+       5.6,
+       5.3,
+       4.8,
+       4.2,
+       3.6
+      ]
+     },
+     "status": "measured",
+     "units": "mm",
+     "confidence": 0.7
+    }
+   },
+   "registration": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ]
+  }
+ },
+ "scaffold_design": {
+  "architecture": {
+   "value": "aligned",
+   "status": "proposed"
+  },
+  "engagement": {
+   "value": "abut",
+   "status": "proposed"
+  },
+  "yarn_count": {
+   "value": 14,
+   "status": "proposed"
+  },
+  "yarn_diameter_mm": {
+   "value": 0.28,
+   "status": "proposed",
+   "units": "mm"
+  },
+  "overlap_tibial_mm": {
+   "value": 4.0,
+   "status": "proposed",
+   "units": "mm"
+  },
+  "overlap_femoral_mm": {
+   "value": 3.0,
+   "status": "proposed",
+   "units": "mm"
+  }
+ },
+ "unknown_block_from_newer_model": {
+  "note": "kept for the import report (unsupported)"
+ }
+}

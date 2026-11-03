@@ -1,3 +1,18 @@
+# ACL repair designer (v2)
+
+**3A (scaffold fit):** the scaffold is generated inside a millimetre repair space (target envelope ∩ affected AM/PL region ∩ damaged interval + permitted overlap, with strand radius and clearances), verified in 3D, highlighted where it fails, and sectioned from the same geometry along the ACL, either bundle, or axial/sagittal/coronal planes. See `docs/V2_REPORT.md` §7.
+
+`python tools/server.py` then open http://127.0.0.1:8000/ (designer) or `/view?state=<id>` (separate viewer); the previous page is at `/classic`.
+
+- Anatomical scene: procedural distal femur / proximal tibia with cartilage (or imported patient meshes), footprints on bone, retained ligament tissue, injury region, intact reference, and a scaffold placed by the injury.
+- Adjustable hierarchy (bundles → fascicle groups → representative fibers), separate twist channels, multiphasic regions.
+- **Scaffold Levels** (default construct): six editable levels — 1 surface coating/nano-texture, 2 grooves, 3 hollow channels, 4 braided AM-like/PL-like mantles, 5 ribbon sheath, 6 flared graded ends — with highlight/isolate/neighbour views, a level cross-section, true-scale magnified details, and conflicts with tested fixes. Knee pose, tear and reference anatomy are in the separate **Anatomy and Pose** panel. See `docs/V2_REPORT.md` §9; engine `acl_engine/v2/layered.py`. The earlier gap-filling braided/aligned scaffold remains available as a construct type.
+- Patient-specific input from an MRI-analysis model: `docs/PATIENT_INPUT.md`; synthetic fixtures in `fixtures/patients/`.
+- What changed, how it was verified, limitations: `docs/V2_REPORT.md`; screenshots in `docs/screenshots/`.
+- Engine: `acl_engine/v2/`; tests: `pytest` (`tests/test_v2.py`).
+
+---
+
 # ACL Scaffold Geometry Engine
 
 Builds a three-strand braided ACL scaffold, places it inside a simple 3D knee,

@@ -60,8 +60,14 @@ function setCam(which) {
   const r = target.isEmpty() ? 60 : target.getSize(new THREE.Vector3()).length();
   const d = r * 1.8;
   // three.js is Y-up; the engine is Z-up with +Y anterior, so engine front (-Y) is three +Z.
+  // modelRoot is rotated -90 deg about X: three +X = lateral, +Y = proximal, +Z = posterior.
   if (which === 'front') setC([c.x, c.y, c.z + d]);
   else if (which === 'side') setC([c.x + s * d, c.y, c.z]);
+  else if (which === 'anterior') setC([c.x, c.y, c.z - d]);
+  else if (which === 'posterior') setC([c.x, c.y, c.z + d]);
+  else if (which === 'lateral') setC([c.x + s * d, c.y, c.z]);
+  else if (which === 'medial') setC([c.x - s * d, c.y, c.z]);
+  else if (which === 'superior') setC([c.x, c.y + d, c.z]);
   else setC([c.x + s * d * 0.6, c.y + d * 0.45, c.z + d * 0.7]);
   function setC(p) { cam.position.set(p[0], p[1], p[2]); ctl.target.copy(c); ctl.update(); }
 }
@@ -70,13 +76,15 @@ function applyTogs() {
   modelRoot.traverse(o => {
     if (!o.isMesh) return; const n = o.name || '';
     if (n.startsWith('scaffold_strand_')) o.visible = $('t_scaf').checked;
-    else if (n.startsWith('acl_')) { o.visible = $('t_ghost').checked; o.material.transparent = true; o.material.opacity = 0.3; o.material.depthWrite = false; o.renderOrder = 2; }
-    else if (n.startsWith('stump_') || n.startsWith('footprint_')) { o.visible = $('t_ghost').checked; o.material.transparent = true; o.material.opacity = n.startsWith('stump_') ? 0.85 : 0.9; o.material.depthWrite = false; o.renderOrder = 2; }  // Milestone A
+    else if (n.startsWith('acl_strands_')) { o.visible = $('t_strand').checked; o.material.transparent = false; o.material.opacity = 1.0; o.material.depthWrite = true; o.renderOrder = 3; }
+    else if (n.startsWith('acl_')) { o.visible = $('t_ghost').checked; o.material.transparent = true; o.material.opacity = n.startsWith('acl_edge_') ? 1.0 : 0.3; o.material.depthWrite = false; o.renderOrder = 2; }
+    else if (n.startsWith('stump_')) { o.visible = $('t_tear').checked; o.material.transparent = true; o.material.opacity = 0.85; o.material.depthWrite = false; o.renderOrder = 2; }
+    else if (n.startsWith('footprint_')) { o.visible = $('t_fp').checked; o.material.transparent = true; o.material.opacity = 0.9; o.material.depthWrite = false; o.renderOrder = 2; }
     else if (n.startsWith('bone_')) { o.visible = $('t_bone').checked; o.material.transparent = true; o.material.opacity = 0.25; o.material.depthWrite = false; o.renderOrder = 1; }
     else if (n.startsWith('tunnel_')) { o.visible = $('t_tun').checked; o.material.transparent = true; o.material.opacity = 0.25; o.material.depthWrite = false; o.renderOrder = 1; }
   });
 }
-['t_scaf', 't_ghost', 't_bone', 't_tun'].forEach(id => $(id).addEventListener('change', applyTogs));
+['t_scaf', 't_ghost', 't_strand', 't_tear', 't_fp', 't_bone', 't_tun'].forEach(id => $(id).addEventListener('change', applyTogs));
 
 // ---- builds -------------------------------------------------------------------
 let timer = null;
@@ -123,6 +131,9 @@ function hintFor(c, summary) {
 const NICE = { native_containment: 'Fits inside natural ACL', strand_gap: "Strands don't touch", block_wall: 'Mold wall ≥ 0.8 mm',
   tube_mold_feasible: 'Tube mold ≥ 1.7 mm', inclination: 'ACL angles match', flare: 'Insertion flare', bone_clearance_schematic: 'Clears tibia',
   bundle_inside_acl: 'Bundles inside ACL', stump_closure: 'Stump faces closed',
+  anatomy_regen: 'Deterministic rebuild', attachment_on_bone: 'Attachments on bone', frame_continuity: 'Frame continuity',
+  mesh_valid_anatomy: 'Anatomy meshes valid', bone_penetration_midbody: 'Mid-body clears bone',
+  anatomy_self_intersection: 'No self-intersection', export_scale: 'Export scale (mm)',
   process_compat: 'Manufacturing', mechanical_validation: 'Mechanics', biological_validation: 'Biology' };
 function renderChecks(checks, summary) {
   const box = $('checks'); box.innerHTML = '';
@@ -215,6 +226,15 @@ async function boot() {
       const b = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'scaffold.stl'; a.click();
     } catch (e) { showErr('Export failed: ' + e.message); }
     $('stl').disabled = false; $('stl').textContent = 'Export STL';
+  };
+  $('anatomy').onclick = async () => {
+    $('anatomy').disabled = true; $('anatomy').textContent = 'Exporting…';
+    try {
+      const r = await fetch('/api/export_anatomy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request }) });
+      if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
+      const b = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'anatomy.stl'; a.click();
+    } catch (e) { showErr('Export failed: ' + e.message); }
+    $('anatomy').disabled = false; $('anatomy').textContent = 'Export anatomy';
   };
 }
 boot().catch(e => showErr('Could not start: ' + e.message));

@@ -19,7 +19,7 @@ TOP_REQ = {"format", "schema_version", "units", "concept", "anatomy",
            "porosity", "fit", "mold", "quality", "materials"}
 TOP_OPT = {"axis", "knee_scene", "hierarchy", "transitions",
            "measurement_conditions", "tear", "scaffold", "composition",
-           "surrounding"}
+           "surrounding", "acl_model"}
 
 
 def _err(m):
@@ -124,14 +124,14 @@ TEAR_KEYS = {"severity", "disrupted_fraction", "involvement",
              "offset_direction_deg", "relative_rotation_deg", "sag_deg",
              "femoral_remnant_flip_deg", "avulsion", "tissue_quality",
              "remnant_mobility", "synovial_covering", "scarring_adhesion",
-             "gap_reference_flexion_deg", "preset"}
+             "gap_reference_flexion_deg", "preset", "observed"}
 
 
 def parse_tear(d):
     if d is None:
         return {"severity": "intact", "disrupted_fraction": 0.0,
                 "involvement": "whole", "location_s": None,
-                "status": "not_implemented_geometry_T3"}
+                "observed": False, "status": "not_implemented_geometry_T3"}
     if not isinstance(d, dict):
         _err("tear must be object")
     extra = set(d.keys()) - TEAR_KEYS
@@ -153,6 +153,7 @@ def parse_tear(d):
            "azimuth_deg": d.get("azimuth_deg", 0.0),
            "morphology": d.get("morphology", "transverse"),
            "preset": d.get("preset", None),
+           "observed": bool(d.get("observed", False)),
            "status": "not_implemented_geometry_T3"}
     for k in ("retraction_femoral_mm", "retraction_tibial_mm",
               "tissue_loss_mm", "lateral_offset_mm", "sag_deg",
@@ -201,6 +202,120 @@ def parse_composition_block(d):
               "composition_tolerance"):
         if k in d:
             out[k] = d[k]
+    return out
+
+
+ACL_MODEL_KEYS = {"centerline_controls", "section_keys", "boundary_keys",
+                  "bundle_sharpness", "strand_count", "strand_margin",
+                  "strand_radius_mm", "swirl_total_deg",
+                  "tibial_footprint", "femoral_footprint",
+                  "flexion_coupling_deg", "n_station", "m_ring", "label"}
+FOOTPRINT_KEYS = {"center", "axes", "rotation_deg", "exponent", "split_deg",
+                  "transition_mm"}
+
+
+def _parse_footprint(d, w):
+    if d is None:
+        return None
+    if not isinstance(d, dict):
+        _err("%s must be object" % w)
+    extra = set(d.keys()) - FOOTPRINT_KEYS
+    if extra:
+        _err("unknown %s field(s): %s" % (w, sorted(extra)))
+    out = {}
+    if "center" in d:
+        c = d["center"]
+        if not (isinstance(c, list) and len(c) == 2):
+            _err("%s.center must be [x, y]" % w)
+        out["center"] = [float(_finite(v, w + ".center")) for v in c]
+    if "axes" in d:
+        a = d["axes"]
+        if not (isinstance(a, list) and len(a) == 2):
+            _err("%s.axes must be [a, b]" % w)
+        out["axes"] = [float(_pos(v, w + ".axes")) for v in a]
+    for k in ("rotation_deg", "split_deg"):
+        if k in d:
+            out[k] = float(_finite(d[k], "%s.%s" % (w, k)))
+    if "exponent" in d:
+        out["exponent"] = float(_pos(d["exponent"], w + ".exponent"))
+    if "transition_mm" in d:
+        out["transition_mm"] = float(_nonneg(d["transition_mm"], w + ".transition_mm"))
+    return out
+
+
+def parse_acl_model(d):
+    """Optional parametric-loft controls. All keys optional; None/absent
+    means derive from the validated anatomy (recorded as assumptions)."""
+    if d is None:
+        return {"status": "derived"}
+    if not isinstance(d, dict):
+        _err("acl_model must be object")
+    extra = set(d.keys()) - ACL_MODEL_KEYS
+    if extra:
+        _err("unknown acl_model field(s): %s" % sorted(extra))
+    out = {"status": "user_controls"}
+    if d.get("centerline_controls", None) is not None:
+        pts = d["centerline_controls"]
+        if not (isinstance(pts, list) and len(pts) >= 2):
+            _err("acl_model.centerline_controls must be a list of >= 2 [x,y,z]")
+        clean = []
+        for p in pts:
+            if not (isinstance(p, list) and len(p) == 3):
+                _err("acl_model.centerline_controls entries must be [x,y,z]")
+            clean.append([float(_finite(v, "centerline_controls")) for v in p])
+        out["centerline_controls"] = clean
+    if d.get("section_keys", None) is not None:
+        keys = []
+        for k in d["section_keys"]:
+            if set(k.keys()) - {"t", "width", "thickness", "exponent", "rotation_deg"}:
+                _err("bad acl_model.section_keys entry %r" % (k,))
+            keys.append({"t": float(_finite(k["t"], "section t")),
+                         "width": float(_pos(k["width"], "section width")),
+                         "thickness": float(_pos(k["thickness"], "section thickness")),
+                         "exponent": float(_pos(k.get("exponent", 1.0), "section exponent")),
+                         "rotation_deg": float(_finite(k.get("rotation_deg", 0.0),
+                                                       "section rotation"))})
+        out["section_keys"] = keys
+    if d.get("boundary_keys", None) is not None:
+        out["boundary_keys"] = [{"t": float(_finite(k["t"], "boundary t")),
+                                 "angle_deg": float(_finite(k["angle_deg"], "boundary angle"))}
+                                for k in d["boundary_keys"]]
+    for k in ("bundle_sharpness",):
+        if k in d:
+            v = float(_finite(d[k], "acl_model." + k))
+            if not (0.0 <= v <= 1.0):
+                _err("acl_model.bundle_sharpness must be in [0,1]")
+            out[k] = v
+    if "strand_count" in d:
+        n = d["strand_count"]
+        if not (isinstance(n, int) and 4 <= n <= 200):
+            _err("acl_model.strand_count must be int in [4,200]")
+        out["strand_count"] = n
+    if "strand_margin" in d:
+        v = float(_finite(d["strand_margin"], "acl_model.strand_margin"))
+        if not (0.5 <= v < 1.0):
+            _err("acl_model.strand_margin must be in [0.5,1)")
+        out["strand_margin"] = v
+    if "strand_radius_mm" in d:
+        out["strand_radius_mm"] = float(_pos(d["strand_radius_mm"], "acl_model.strand_radius_mm"))
+    if "swirl_total_deg" in d:
+        out["swirl_total_deg"] = float(_finite(d["swirl_total_deg"], "acl_model.swirl_total_deg"))
+    if "flexion_coupling_deg" in d:
+        out["flexion_coupling_deg"] = float(_finite(d["flexion_coupling_deg"],
+                                                    "acl_model.flexion_coupling_deg"))
+    for k in ("n_station", "m_ring"):
+        if k in d:
+            v = d[k]
+            if not (isinstance(v, int) and v >= 8):
+                _err("acl_model.%s must be int >= 8" % k)
+            out[k] = v
+    for k in ("tibial_footprint", "femoral_footprint"):
+        if d.get(k, None) is not None:
+            out[k] = _parse_footprint(d[k], "acl_model." + k)
+    if "label" in d:
+        if not isinstance(d["label"], str):
+            _err("acl_model.label must be string")
+        out["label"] = d["label"]
     return out
 
 
@@ -442,6 +557,7 @@ def validate_request(obj):
     tear = parse_tear(obj.get("tear", None))
     scaf = parse_scaffold_block(obj.get("scaffold", None))
     comp = parse_composition_block(obj.get("composition", None))
+    amod = parse_acl_model(obj.get("acl_model", None))
     side = "right"
     if isinstance(an.get("side", None), str):
         if an["side"] not in ("right", "left"):
@@ -462,6 +578,7 @@ def validate_request(obj):
     norm["tear"] = tear
     norm["scaffold"] = scaf
     norm["composition"] = comp
+    norm["acl_model"] = amod
     L = sum(float(z["length_mm"]) for z in zones)
     bb = [0.0]
     for z in zones:

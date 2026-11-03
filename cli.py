@@ -26,7 +26,7 @@ from acl_engine.context import (build_native_axis, measured_inclinations,
                                 ellipsoid_mesh, cylinder_mesh, ghost_mesh,
                                 containment_of_points, footprint_coverage,
                                 dist_point_box)
-from acl_engine.export import write_stl, write_glb, write_json
+from acl_engine.export import write_stl, write_glb, write_json, read_stl_vertices
 from acl_engine.controls import resolve_rates_closed_loop
 # Milestone A: anatomical ACL + tear geometry (new modules, schematic path untouched)
 from acl_engine.anatomy import (build_bundle_fields, build_bundle_meshes,
@@ -35,6 +35,9 @@ from acl_engine.anatomy import (build_bundle_fields, build_bundle_meshes,
 from acl_engine.footprints import (tibial_footprint_mesh, femoral_footprint_mesh,
                                    femoral_crescent_coverage)
 from acl_engine.tear import build_stumps
+from acl_engine.anatomy_build import (build_anatomy, build_loft_tear,
+                                      anatomy_payload, validation_report)
+from acl_engine.loft import apply_flexion as _apply_flexion_pts
 
 
 def run_request(norm, mig, quality, out, skip_stl=False):
@@ -119,6 +122,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
     realism = norm["_derived"].get("realism", "schematic")
     twist_total = float(norm["_derived"].get("anatomical_twist_total_deg", 0.0))
     twist_dist = norm["_derived"].get("twist_distribution", "uniform")
+    flexion_deg = float(norm.get("knee_scene", {}).get("flexion_deg", 0.0))
     Ttib, Ffem, u = build_native_axis(acl_len, sag, cor, side)
     sag_m, cor_m = measured_inclinations(u)
     flat = any(z.get("cross_section", "round") == "flat" for z in zones)
@@ -131,6 +135,15 @@ def run_request(norm, mig, quality, out, skip_stl=False):
         bundle_data = build_bundle_fields(Ttib, u, e1, e3, ss_env, Ws_env, Ts_env,
                                            twist_total, twist_dist)
         bundle_data["max_bundle_rn"] = max_bundle_radius(bundle_data)
+    # Parametric loft anatomy (intact reference object; schematic skips it)
+    anat = None
+    regen_ok = None
+    if realism == "anatomical":
+        anat = build_anatomy(norm, Ttib, Ffem, u, e1, e3, ss_env, Ws_env, Ts_env,
+                             side, quality=quality, with_tubes=True)
+        _re = build_anatomy(norm, Ttib, Ffem, u, e1, e3, ss_env, Ws_env, Ts_env,
+                            side, quality=quality, with_tubes=False)
+        regen_ok = bool(_re["regen_hash"] == anat["regen_hash"])
     lig_idx = len(zones) // 2
     Lpre = sum(lens[:lig_idx])
 
@@ -188,6 +201,10 @@ def run_request(norm, mig, quality, out, skip_stl=False):
     os.makedirs(out, exist_ok=True)
     if not skip_stl:
         write_stl(os.path.join(out, "scaffold.stl"), bodies_world)
+    # Separately exportable anatomy (closed solids only; same mm units)
+    if anat is not None and not skip_stl:
+        write_stl(os.path.join(out, "anatomy.stl"),
+                  [anat["surface"], anat["tibial_patch"]])
     tm["stl"] = time.time() - s1
     s1 = time.time()
     Vt, Ft = box_mesh(np.array([0.0, 0.0, -5.0]), np.array([75.0, 50.0, 10.0]))
@@ -209,21 +226,64 @@ def run_request(norm, mig, quality, out, skip_stl=False):
             extra_named.append({"name": "acl_ghost_%s" % _bn.lower(),
                                 "vertices": bundle_meshes[_bn][0],
                                 "faces": bundle_meshes[_bn][1]})
-        _Vt, _Ft = tibial_footprint_mesh(Ttib)
-        extra_named.append({"name": "footprint_tibial", "vertices": _Vt, "faces": _Ft})
-        _Vf, _Ff = femoral_footprint_mesh(Ffem, side)
-        extra_named.append({"name": "footprint_femoral", "vertices": _Vf, "faces": _Ff})
+        if anat is None:
+            # Legacy fallback (kept so old bundle/footprint outputs still exist)
+            _Vt, _Ft = tibial_footprint_mesh(Ttib)
+            extra_named.append({"name": "footprint_tibial", "vertices": _Vt, "faces": _Ft})
+            _Vf, _Ff = femoral_footprint_mesh(Ffem, side)
+            extra_named.append({"name": "footprint_femoral", "vertices": _Vf, "faces": _Ff})
+            if norm["tear"].get("severity", "intact") != "intact":
+                stump_info = build_stumps(bundle_data, bundle_meshes, norm["tear"])
+                extra_named.append({"name": "stump_tibial",
+                                    "vertices": stump_info["stump_tibial"][0],
+                                    "faces": stump_info["stump_tibial"][1]})
+                extra_named.append({"name": "stump_femoral",
+                                    "vertices": stump_info["stump_femoral"][0],
+                                    "faces": stump_info["stump_femoral"][1]})
+    # Loft anatomy meshes: intact reference surface + strands + on-bone
+    # footprints + boundary loops; injury object cut from a loft copy.
+    loft_tear = None
+    if anat is not None:
+        extra_named.append({"name": "acl_surface",
+                            "vertices": anat["surface"][0], "faces": anat["surface"][1]})
+        for _bn in ("AM", "PL"):
+            if _bn in anat["strand_tubes"]:
+                extra_named.append({"name": "acl_strands_%s" % _bn.lower(),
+                                    "vertices": anat["strand_tubes"][_bn][0],
+                                    "faces": anat["strand_tubes"][_bn][1]})
+        extra_named.append({"name": "footprint_tibial",
+                            "vertices": anat["tibial_patch"][0],
+                            "faces": anat["tibial_patch"][1]})
+        extra_named.append({"name": "footprint_femoral",
+                            "vertices": anat["femoral_patch"][0],
+                            "faces": anat["femoral_patch"][1]})
+        if anat["edge_tibial"][0].shape[0]:
+            extra_named.append({"name": "acl_edge_tibial",
+                                "vertices": anat["edge_tibial"][0],
+                                "faces": anat["edge_tibial"][1]})
+        if anat["edge_femoral"][0].shape[0]:
+            extra_named.append({"name": "acl_edge_femoral",
+                                "vertices": anat["edge_femoral"][0],
+                                "faces": anat["edge_femoral"][1]})
         if norm["tear"].get("severity", "intact") != "intact":
-            stump_info = build_stumps(bundle_data, bundle_meshes, norm["tear"])
+            loft_tear = build_loft_tear(anat, norm["tear"],
+                                        observed=bool(norm["tear"].get("observed", False)))
+            stump_info = loft_tear
             extra_named.append({"name": "stump_tibial",
-                                "vertices": stump_info["stump_tibial"][0],
-                                "faces": stump_info["stump_tibial"][1]})
+                                "vertices": loft_tear["stump_tibial"][0],
+                                "faces": loft_tear["stump_tibial"][1]})
             extra_named.append({"name": "stump_femoral",
-                                "vertices": stump_info["stump_femoral"][0],
-                                "faces": stump_info["stump_femoral"][1]})
+                                "vertices": loft_tear["stump_femoral"][0],
+                                "faces": loft_tear["stump_femoral"][1]})
     Rtun = (2.0 * a + d) / 2.0 + 0.5
     Vtib_tun, Ftib_tun = cylinder_mesh(Ttib - 20.0 * u, Ttib, Rtun)
     Vfem_tun, Ffem_tun = cylinder_mesh(Ffem, Ffem + 20.0 * u, Rtun)
+    # Flexion pose (illustrative rigid transform of the femoral side; no-op at 0 deg)
+    if abs(flexion_deg) > 1e-12 and anat is not None:
+        _ax = np.array(anat["flexion"]["axis_point_mm"], dtype=float)
+        Vl = _apply_flexion_pts(Vl, flexion_deg, _ax)
+        Vm = _apply_flexion_pts(Vm, flexion_deg, _ax)
+        Vfem_tun = _apply_flexion_pts(Vfem_tun, flexion_deg, _ax)
     named = [{"name": "scaffold_strand_%d" % i, "vertices": bodies_world[i][0], "faces": bodies_world[i][1]}
              for i in range(3)]
     named += [{"name": "acl_ghost", "vertices": Vg, "faces": Fg},
@@ -267,8 +327,16 @@ def run_request(norm, mig, quality, out, skip_stl=False):
                "notch_distance_schematic_mm": float(d_notch)}
     # Milestone A: realism flag + anatomical payload (gap, stumps, bundles)
     context["realism"] = realism
+    context["pose_flexion_deg"] = flexion_deg
     if realism == "anatomical" and bundle_data is not None:
         context["anatomical"] = anatomical_context(bundle_data, cov_fem_anat, stump_info)
+    if anat is not None:
+        context["anatomy_ref"] = {
+            "centerline_length_mm": anat["loft"]["length_mm"],
+            "volume_mm3": anat["volume_mm3"],
+            "gap_mm": loft_tear["gap_mm"] if loft_tear else None,
+            "injury_source": loft_tear["injury_source"] if loft_tear else "intact_reference",
+            "detail_file": "anatomy.json"}
     write_json(os.path.join(out, "context.json"), context)
 
     gap_ok = gap_mm is not None and gap_mm > 0
@@ -317,6 +385,54 @@ def run_request(norm, mig, quality, out, skip_stl=False):
                            "threshold": 0, "actual": _open, "units": "open edges",
                            "method": "every mesh edge shared by exactly 2 triangles",
                            "location": {}, "suggested_parameter_changes": []})
+    # Loft anatomy checks (only when the reference object exists)
+    if anat is not None:
+        checks.append({"check_id": "anatomy_regen",
+                       "status": "pass" if regen_ok else "fail",
+                       "threshold": None, "actual": anat["regen_hash"][:16], "units": "hash16",
+                       "method": "rebuild without tubes reproduces the surface hash",
+                       "location": {}, "suggested_parameter_changes": []})
+        _miss = sum(anat["endpoint_misses"].values())
+        checks.append({"check_id": "attachment_on_bone",
+                       "status": "pass" if _miss == 0 else "fail",
+                       "threshold": 0, "actual": _miss, "units": "missed rays",
+                       "method": "footprint endpoint rays hit the bone surface",
+                       "location": {}, "suggested_parameter_changes": []})
+        _co = float(anat["loft"]["continuity"])
+        checks.append({"check_id": "frame_continuity",
+                       "status": "pass" if _co >= 0.999 else "fail",
+                       "threshold": 0.999, "actual": _co, "units": "min dot",
+                       "method": "consecutive RMF frame alignment; engineering threshold",
+                       "location": {}, "suggested_parameter_changes": []})
+        _aud = all(v["pass"] for v in anat["audits"].values())
+        checks.append({"check_id": "mesh_valid_anatomy",
+                       "status": "pass" if _aud else "fail",
+                       "threshold": None, "actual": {k: v["pass"] for k, v in anat["audits"].items()},
+                       "units": "audits", "method": "edge counts + degenerate + orientation per solid/open class",
+                       "location": {}, "suggested_parameter_changes": []})
+        _bp = float(anat["bone_penetration"]["fraction"])
+        checks.append({"check_id": "bone_penetration_midbody",
+                       "status": "pass" if _bp <= 0.02 else "warn",
+                       "threshold": 0.02, "actual": _bp, "units": "fraction",
+                       "method": "mid-body surface samples inside bone; 2% engineering allowance (bulbous schematic condyle)",
+                       "location": {}, "suggested_parameter_changes": []})
+        if quality == "export":
+            _si = anat["self_intersections"]["count"]
+            checks.append({"check_id": "anatomy_self_intersection",
+                           "status": "pass" if _si == 0 else "fail",
+                           "threshold": 0, "actual": _si, "units": "pairs",
+                           "method": "exact segment-triangle test over KD-tree candidates",
+                           "location": {}, "suggested_parameter_changes": []})
+        if anat is not None and not skip_stl:
+            _soup = read_stl_vertices(os.path.join(out, "anatomy.stl"))
+            _mm = np.concatenate([anat["surface"][0], anat["tibial_patch"][0]])
+            _dd = float(max(np.abs(_soup.min(axis=0) - _mm.min(axis=0)).max(),
+                            np.abs(_soup.max(axis=0) - _mm.max(axis=0)).max()))
+            checks.append({"check_id": "export_scale",
+                           "status": "pass" if _dd < 0.01 else "fail",
+                           "threshold": 0.01, "actual": _dd, "units": "mm",
+                           "method": "anatomy.stl bounds vs source bounds (mm, float32 round-trip)",
+                           "location": {}, "suggested_parameter_changes": []})
     for zl, z in zip(zlams, zones):
         if z.get("control") == "fiber_length":
             tgt = float(z["path_length_ratio"])
@@ -329,6 +445,12 @@ def run_request(norm, mig, quality, out, skip_stl=False):
                   "overall": {"geometry_valid": bool(gap_ok), "target_fit_satisfied": bool(pen <= 0.0)},
                   "wording": "Schematic knee, not patient anatomy. Outside native ACL envelope (schematic) if containment fails."}
     write_json(os.path.join(out, "validation.json"), validation)
+    # Parameter record + validation report for the anatomy object
+    if anat is not None:
+        write_json(os.path.join(out, "anatomy.json"),
+                   anatomy_payload(anat, norm, side, quality, loft_tear, regen_ok))
+        write_json(os.path.join(out, "validation_report.json"),
+                   validation_report(anat, loft_tear, quality))
 
     summary = ["phaseL=%.5f equiv=%.4f nevents=%d" % (phaseL, equiv, len(events)),
                "zone fiber length (path-length ratio, mean of 3 strands): " +
@@ -338,8 +460,9 @@ def run_request(norm, mig, quality, out, skip_stl=False):
                "penetration %.4f coverage tib %.3f fem %.3f" % (pen, cov_tib, cov_fem),
                "gap surf=%.4f Rmin=%.4f" % (gap_mm, (1.0 / kmax if kmax > 0 else float("inf"))),
                "assumptions used: %d" % len(assumptions),
-               "wrote %s: %sknee.glb, parameters.json, context.json, validation.json, migration_report.json"
-               % (out, "" if skip_stl else "scaffold.stl, ")]
+               "wrote %s: %sknee.glb, parameters.json, context.json, validation.json, migration_report.json%s"
+               % (out, "" if skip_stl else "scaffold.stl, ",
+                  "" if anat is None else ", anatomy.stl, anatomy.json, validation_report.json")]
     # Milestone A: one-line anatomical summary
     if realism == "anatomical" and bundle_data is not None:
         _am = bundle_data["bundles"]["AM"]["length_mm"]
@@ -351,6 +474,11 @@ def run_request(norm, mig, quality, out, skip_stl=False):
                 stump_info["severity"], stump_info["involvement"], stump_info["gap_mm"],
                 stump_info["gap_nominal_mm"], stump_info["tibial_stump_mm"],
                 stump_info["femoral_stump_mm"]))
+    if anat is not None:
+        summary.append("loft ACL len %.2fmm vol %.0fmm3 strands %d/%d flexion %.1fdeg (%s)" % (
+            anat["loft"]["length_mm"], anat["volume_mm3"],
+            anat["strand_paths"]["AM"].shape[0], anat["strand_paths"]["PL"].shape[0],
+            flexion_deg, loft_tear["injury_source"] if loft_tear else "intact_reference"))
     tm["glb_json"] = time.time() - s1
     return {"phaseL": phaseL, "design_hash": resolved["design_hash"], "timings_s": tm, "nevents": len(events), "arcs": arcs, "gap": gap_mm, "pen": pen,
             "kmax": kmax, "elapsed_s": time.time() - t0, "uses_assumptions": len(assumptions) > 0,

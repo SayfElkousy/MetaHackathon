@@ -22,20 +22,27 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # so every build failed with "No module named acl_engine".
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
+TOOLS = os.path.dirname(os.path.abspath(__file__))
+if TOOLS not in sys.path:
+    sys.path.insert(0, TOOLS)
 WEB = os.path.join(ROOT, "tools", "web")
 FIX = os.path.join(ROOT, "fixtures")
 BUILD_LOCK = threading.Lock()
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 MAX_BODY = 2 * 1024 * 1024
+MAX_BODY_V2 = 80 * 1024 * 1024   # v2 imports may carry meshes/masks (base64)
 
 
 def _send_json(h, code, obj):
     b = json.dumps(obj).encode("utf-8")
-    h.send_response(code)
-    h.send_header("Content-Type", "application/json")
-    h.send_header("Content-Length", str(len(b)))
-    h.end_headers()
-    h.wfile.write(b)
+    try:
+        h.send_response(code)
+        h.send_header("Content-Type", "application/json")
+        h.send_header("Content-Length", str(len(b)))
+        h.end_headers()
+        h.wfile.write(b)
+    except (BrokenPipeError, ConnectionResetError):
+        pass  # the browser cancelled a superseded request
 
 
 def _load_fixture_summary(path):
@@ -91,6 +98,13 @@ def editable_request(req):
     tr.setdefault("azimuth_deg", 0.0)
     tr.setdefault("retraction_femoral_mm", 0.0)
     tr.setdefault("retraction_tibial_mm", 0.0)
+    # Loft anatomy sliders: pose + strand density (defaults = extension pose,
+    # derived strand count; the validated design is unchanged).
+    ks = r.setdefault("knee_scene", {})
+    ks.setdefault("type", "schematic")
+    ks.setdefault("flexion_deg", 0.0)
+    am = r.setdefault("acl_model", {})
+    am.setdefault("strand_count", 24)
     return r
 
 
@@ -102,7 +116,7 @@ class H(BaseHTTPRequestHandler):
 
     def _read_json(self):
         n = int(self.headers.get("Content-Length", "0") or "0")
-        if n > MAX_BODY:
+        if n > (MAX_BODY_V2 if self.path.startswith("/api/v2/") else MAX_BODY):
             return None, "too_large"
         raw = self.rfile.read(n) if n > 0 else b"{}"
         try:
@@ -115,8 +129,38 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path == "/":
+        # v2 designer at "/", separate viewer at "/view", previous N3 page at "/classic"
+        if u.path in ("/", "/view", "/index.html"):
+            return self._serve_file(os.path.join(WEB, "v2", "index.html"), "text/html")
+        if u.path == "/classic":
             return self._serve_file(os.path.join(WEB, "index.html"), "text/html")
+        if u.path.startswith("/v2/"):
+            rel = u.path[len("/v2/"):]
+            if "/" in rel or "\\" in rel or rel.startswith(".") or not re.match(r"^[A-Za-z0-9_.-]+$", rel):
+                return _send_json(self, 400, {"error": "bad path", "field": "path", "hint": "use /v2/<file>"})
+            _, ext = os.path.splitext(rel)
+            if ext not in (".html", ".js", ".css", ".json"):
+                return _send_json(self, 403, {"error": "blocked", "field": "path", "hint": "whitelist html js css json"})
+            ctype = {"html": "text/html", "js": "text/javascript", "css": "text/css", "json": "application/json"}[ext[1:]]
+            return self._serve_file(os.path.join(WEB, "v2", rel), ctype)
+        if u.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+        if u.path == "/api/v2/registry":
+            from acl_engine.v2.design import registry_for_ui
+            return _send_json(self, 200, registry_for_ui())
+        if u.path == "/api/v2/cases":
+            import server_v2 as V2
+            return _send_json(self, 200, {"cases": V2.builtin_cases()})
+        if u.path == "/api/v2/state":
+            import server_v2 as V2
+            sid = (parse_qs(u.query).get("id", [""])[0])
+            st = V2.load_state(sid)
+            if st is None:
+                return _send_json(self, 404, {"error": "saved model not found", "field": "id",
+                                              "hint": "the link may be from another computer or the store was cleared; open a case instead"})
+            return _send_json(self, 200, {"id": sid, "state": st})
         if u.path.startswith("/web/"):
             rel = u.path[len("/web/"):]
             if "/" in rel or "\\" in rel or rel.startswith("."):
@@ -166,13 +210,73 @@ class H(BaseHTTPRequestHandler):
             return _send_json(self, 413, {"error": "body over 2MB", "field": "body", "hint": "send a smaller request"})
         if err:
             return _send_json(self, 400, {"error": err, "field": "body", "hint": "send JSON"})
+        if u.path.startswith("/api/v2/"):
+            return self._v2(u.path, body)
         if u.path == "/api/build":
             return self._build(body)
         if u.path == "/api/save":
             return self._save(body)
         if u.path == "/api/export_stl":
             return self._export_stl(body)
-        return _send_json(self, 404, {"error": "not found", "field": "path", "hint": "POST /api/build /api/save /api/export_stl"})
+        if u.path == "/api/export_anatomy":
+            return self._export_anatomy(body)
+        return _send_json(self, 404, {"error": "not found", "field": "path", "hint": "POST /api/build /api/save /api/export_stl /api/export_anatomy"})
+
+    def _v2(self, path, body):
+        import server_v2 as V2
+        try:
+            if path == "/api/v2/new":
+                try:
+                    st = V2.new_case(body.get("case", "demo_complete"))
+                except KeyError:
+                    return _send_json(self, 404, {"error": "unknown case", "hint": "see /api/v2/cases"})
+                return _send_json(self, 200, {"state": st})
+            if path == "/api/v2/import":
+                code, out = V2.import_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/build":
+                code, out = V2.build_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/detail":
+                code, out = V2.detail_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/section":
+                code, out = V2.section_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/level_detail":
+                code, out = V2.level_detail_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/layer_fixes":
+                code, out = V2.layer_fixes_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/inactive":
+                code, out = V2.inactive_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/resolutions":
+                code, out = V2.resolutions_request(body)
+                return _send_json(self, code, out)
+            if path == "/api/v2/state":
+                st = body.get("state")
+                if not isinstance(st, dict) or "params" not in st:
+                    return _send_json(self, 400, {"error": "missing state"})
+                return _send_json(self, 200, {"id": V2.save_state(st)})
+            if path == "/api/v2/export":
+                code, man, data = V2.export_request(body)
+                if code != 200:
+                    return _send_json(self, code, man)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition", "attachment; filename=acl_scaffold_%s.zip" % man["design_hash"])
+                self.send_header("X-Design-Hash", man["design_hash"])
+                self.send_header("X-Geometry-Hash", man["geometry_hash"])
+                self.end_headers()
+                self.wfile.write(data)
+                return
+        except Exception as e:
+            traceback.print_exc()
+            return _send_json(self, 500, {"error": "server error: %s" % e, "hint": "see server log"})
+        return _send_json(self, 404, {"error": "not found"})
 
     def _validate(self, body):
         from acl_engine.schema import validate_request
@@ -263,6 +367,30 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _export_anatomy(self, body):
+        from cli import run_request
+        v = self._validate(body)
+        if v is None:
+            return
+        norm, mig = v
+        with BUILD_LOCK, tempfile.TemporaryDirectory(prefix="n3anat_") as tmp:
+            try:
+                run_request(norm, mig, "export", tmp)
+            except Exception as e:
+                traceback.print_exc()
+                return _send_json(self, 500, {"error": "export failed: %s" % e, "field": "request", "hint": "see server log"})
+            p = os.path.join(tmp, "anatomy.stl")
+            if not os.path.exists(p):
+                return _send_json(self, 400, {"error": "no anatomy in this design", "field": "anatomy.realism", "hint": "set realism to anatomical"})
+            with open(p, "rb") as f:
+                b = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "model/stl")
+        self.send_header("Content-Length", str(len(b)))
+        self.send_header("Content-Disposition", "attachment; filename=anatomy.stl")
+        self.end_headers()
+        self.wfile.write(b)
+
 
 def run(port=8000, open_browser=True):
     srv = None
@@ -276,7 +404,17 @@ def run(port=8000, open_browser=True):
             continue
     if srv is None:
         raise OSError("ports %d-%d busy" % (port, port + 10))
-    print("N3 viewer: http://127.0.0.1:%d/ (this computer only). Press Ctrl+C to stop." % used)
+    print("ACL designer: http://127.0.0.1:%d/  (viewer: /view, previous page: /classic). Press Ctrl+C to stop." % used)
+
+    def _warm():
+        try:
+            from acl_engine.v2.design import new_state
+            from acl_engine.v2.scene import build_scene
+            with BUILD_LOCK:
+                build_scene(new_state(), "full")
+        except Exception:
+            traceback.print_exc()
+    threading.Thread(target=_warm, daemon=True).start()
     if open_browser:
         try:
             webbrowser.open("http://127.0.0.1:%d/" % used)

@@ -11,6 +11,13 @@
   "process_compat": "Manufacturing compatibility not evaluated.",
   "mechanical_validation": "Mechanics not evaluated in this release.",
   "biological_validation": "Biology not evaluated in this release.",
+  "anatomy_regen": "Rebuild hash differs: nondeterministic geometry or edited inputs between passes.",
+  "attachment_on_bone": "{actual} footprint rays missed the bone surface: shrink the footprint domain or move its center.",
+  "frame_continuity": "Centerline frames flip (min dot {actual:.4f}): add intermediate control points to smooth the path.",
+  "mesh_valid_anatomy": "Anatomy mesh audit failed: see validation_report.json for the defect counts.",
+  "bone_penetration_midbody": "Mid-body surface inside bone (fraction {actual:.4f} over 0.02): check centerline clearance and section widths.",
+  "anatomy_self_intersection": "{actual} intersecting triangle pairs: smooth section keys or reduce the fan rotation.",
+  "export_scale": "Export bounds differ by {actual:.3f} mm: check STL units and float precision.",
   "bundle_inside_acl": "Bundle surface reaches {actual:.2f} of the ACL envelope (limit 1.00): check bundle offsets (anatomical mode).",
   "stump_closure": "Stump cut faces have {actual} open edges: lower the tear obliquity or move the tear location.",
   "fallback": "{check_id}: {status}. See validation.json."

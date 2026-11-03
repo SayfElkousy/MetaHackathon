@@ -20,6 +20,11 @@ COLORS = {
     "footprint_tibial": [0.98, 0.95, 0.88, 0.85],
     "stump_femoral": [0.78, 0.20, 0.22, 0.90],
     "stump_tibial": [0.85, 0.35, 0.30, 0.90],
+    "acl_surface": [0.90, 0.62, 0.50, 0.35],
+    "acl_strands_am": [0.75, 0.25, 0.20, 1.0],
+    "acl_strands_pl": [0.25, 0.35, 0.75, 1.0],
+    "acl_edge_tibial": [0.20, 0.20, 0.20, 1.0],
+    "acl_edge_femoral": [0.20, 0.20, 0.20, 1.0],
 }
 
 
