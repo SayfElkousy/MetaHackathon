@@ -70,6 +70,7 @@ export class Muse {
       selected_level: S.levelSel || null, selected_component: S.compSel || null, builder_mode: !!S.builder,
       patient_details: patientDetails || null, patient_details_source: patientDetails ? 'entered by the user; not independently verified' : null,
       imaging: IM.manifest ? { case: IM.manifest.label, synthetic: IM.manifest.synthetic,
+        active_scan: (() => { const v = IM.vol(IM.activeVol); return v && v.scan_id ? (IM.manifest.scans || {})[v.scan_id] || null : null; })(),
         volumes: IM.imageVolumes().map(v => ({ id: v.id, name: v.name, shape: v.shape, zooms_mm: v.spacing_known ? v.zooms : null, oriented: v.orientation_known, frame: v.frame_id })),
         masks: Object.values(IM.manifest.masks).map(m => ({ id: m.id, volume: m.volume, origin: m.origin, review: m.review.status, labels: m.labels.map(l => l.name), model: m.model && m.model.name })),
         annotations: anns, report_findings: IM.manifest.findings } : null,

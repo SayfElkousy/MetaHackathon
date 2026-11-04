@@ -65,10 +65,36 @@ export function renderBrowser(ws) {
     h('p', { class: 'note' }, 'DICOM (.dcm, folder or .zip), NIfTI, .npy, PNG/JPEG/TIFF stacks. Series are grouped, ordered and validated; problems are listed, not hidden.'),
     h('div', { id: 'impStatus' })));
   if (ws.importState) box.querySelector('#impStatus').append(importStatus(ws));
-  // ---- tree: study -> series -> masks
+  // ---- tree: uploaded scan -> detected series -> analysis -> linked designs
   const vols = IM.imageVolumes();
+  const scans = Object.values(IM.manifest.scans || {}).sort((a, b) => String(a.uploaded_at).localeCompare(String(b.uploaded_at)));
+  if (scans.length) {
+    for (const scan of scans) {
+      const sv = vols.filter(v => v.scan_id === scan.id);
+      const suffix = scans.filter(x => x.original_filename === scan.original_filename).length > 1 ? ` · ${scan.id.slice(-5)}` : '';
+      const det = h('details', { class: 'scanrec', open: sv.some(v => v.id === IM.activeVol) },
+        h('summary', { onclick: async () => {
+          if (sv[0]) { IM.activeVol = sv[0].id; ws.showSeries(sv[0].id); }
+          const link = (scan.linked_designs || []).slice(-1)[0];
+          if (link && link.design_id) try { const d = await api('/api/v2/state?id=' + encodeURIComponent(link.design_id)); ws.app.loadState(d.state, link.design_id); } catch (e) { ws.toast(e.message, 'err'); }
+        } }, h('b', {}, scan.original_filename + suffix), chip(scan.analysis_status === 'complete' ? 'pass' : scan.analysis_status === 'failed' ? 'fail' : 'warn', scan.analysis_status || 'uploaded')),
+        h('div', { class: 'scanmeta mono' }, `ID ${scan.id} · SHA-256 ${(scan.content_sha256 || '').slice(0, 12)} · ${scan.uploaded_at || ''}`));
+      for (const v of sv) det.append(seriesRow(ws, v));
+      if (scan.analysis) det.append(h('div', { class: 'scansection' }, h('b', {}, 'Analysis and segmentation'),
+        h('div', { class: 'small' }, `${(scan.analysis_model || {}).name || 'KneeScan'} ${(scan.analysis_model || {}).version || ''} · revision ${scan.analysis_revision || 0} · ${scan.review_status || 'unreviewed'}`)));
+      const ms = scan.measurements || {};
+      if (Object.keys(ms).length) det.append(h('details', { class: 'scansection' }, h('summary', {}, 'Landmarks and measurements'),
+        ...Object.entries(ms).map(([k, val]) => h('div', { class: 'small mono' }, `${k}: ${typeof val === 'object' ? JSON.stringify(val) : val}`))));
+      if ((scan.linked_designs || []).length) det.append(h('details', { class: 'scansection' }, h('summary', {}, 'Linked scaffold designs'),
+        ...(scan.linked_designs || []).map(link => h('button', { onclick: async e => { e.stopPropagation(); const d = await api('/api/v2/state?id=' + encodeURIComponent(link.design_id)); ws.app.loadState(d.state, link.design_id); } },
+          `${link.personalization_status === 'mri_derived' ? 'MRI-derived' : 'Template — awaiting measurements'} · ${link.design_id.slice(0, 8)}`))));
+      box.append(det);
+    }
+  }
+  // Older cases remain readable even before they acquire scan records.
+  const unlinked = scans.length ? vols.filter(v => !v.scan_id || !IM.manifest.scans[v.scan_id]) : vols;
   const studies = new Map();
-  for (const v of vols) { const k = (v.meta && v.meta.study_key) || ('file:' + v.fmt); (studies.get(k) || studies.set(k, []).get(k)).push(v); }
+  for (const v of unlinked) { const k = (v.meta && v.meta.study_key) || ('file:' + v.fmt); (studies.get(k) || studies.set(k, []).get(k)).push(v); }
   for (const [k, list] of studies) {
     const st = list[0].meta && (list[0].meta.StudyDescription || list[0].meta.study_key);
     box.append(h('div', { class: 'study' }, k.startsWith('file:') ? `Files (${k.slice(5)})` : `Study ${esc(st)}`));
@@ -138,6 +164,15 @@ export function renderImgInspector(ws) {
     v ? h('div', { class: 'note mono' }, `${v.shape.join('×')} · ${v.spacing_known ? v.zooms.map(z => (+z).toFixed(3)).join('×') + ' mm' : 'uncalibrated'} · ${v.orientation_known ? 'RAS+ (from ' + (v.fmt === 'dicom' ? 'DICOM' : 'NIfTI') + ')' : 'orientation unknown'}`) : null,
     v ? row('Linked series', h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: !IM.linkOff.has(v.id), disabled: !v.frame_id, 'data-ctl': 'img.series.linked',
       onchange: e => ws.set('img.series.linked', e.target.checked) }), v.frame_id ? ` ${IM.linkedWith(v.id).length} other series share this frame of reference` : ' none: no verified frame of reference')) : null));
+  const dm = ws.app.S.state && ((ws.app.S.state.assets || {}).mri_design_mapping);
+  if (dm) box.append(sec('MRI-derived design inputs',
+    h('div', { class: dm.status === 'mri_derived' ? 'note' : 'warnbox' }, dm.status === 'mri_derived' ?
+      'MRI-derived geometry inputs are linked to this design.' : 'Template — awaiting anatomical measurements. Analysis ran, but no supported geometric measurement changed the template.'),
+    ...dm.rows.filter(r => r.param).map(r => h('div', { class: 'mappingrow' },
+      h('b', {}, r.reading), h('span', { class: 'mono' }, `${r.value == null ? '—' : typeof r.value === 'object' ? JSON.stringify(r.value) : r.value}${r.units ? ' ' + r.units : ''}`),
+      h('span', {}, r.param), chip(r.result === 'applied' ? 'pass' : r.result === 'recorded' ? 'warn' : 'not_evaluated', r.result),
+      r.note ? h('small', { class: 'muted' }, r.note) : null)),
+    h('div', { class: 'note' }, 'Defaults remain for: ' + (dm.defaults_remain_for || []).join(', ') + '.')));
   if (!v || !v.loaded) { box.append(h('p', { class: 'note' }, v ? 'Loading…' : 'Choose a series.')); return; }
   // navigation
   const tools = h('div', { class: 'tools', role: 'toolbar', 'data-ctl-group': 'img.tool' }, ...TOOLS.map(([id, name, key, tip]) =>

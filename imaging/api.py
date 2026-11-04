@@ -55,7 +55,7 @@ def get(path, q):
 
 
 def public_case(m):
-    return {k: m.get(k) for k in ("id", "label", "synthetic", "created", "volumes", "masks", "annotations", "findings", "report_text")}
+    return {k: m.get(k) for k in ("id", "label", "synthetic", "created", "volumes", "masks", "annotations", "findings", "scans", "report_text")}
 
 
 # --------------------------------------------------------------------------- uploads (raw body)
@@ -162,6 +162,16 @@ def start_import(body):
         raise ValueError("no uploaded files in this batch")
     if role == "mask" and body.get("for_volume") not in m["volumes"]:
         raise ValueError("choose the image volume this mask belongs to")
+    scan = None
+    if role == "image":
+        identities = []
+        for path, _ in files:
+            identities.append(ST.file_sha256(path))
+        # A scan's identity follows its bytes, not file-selection order or filename.
+        batch_hash = __import__("hashlib").sha256("\n".join(sorted(identities)).encode()).hexdigest()
+        originals = list(body.get("original_names") or [n for _, n in files])
+        top_name = body.get("original_filename") or (originals[0] if len(originals) == 1 else "MRI series (%d files)" % len(originals))
+        scan = ST.create_scan(cid, top_name, batch_hash, originals, status="importing")
 
     def work(step):
         step(0.05, "reading %d file(s)" % len(files))
@@ -187,14 +197,22 @@ def start_import(body):
             else:
                 src = _keep_sources(cid, r, files)
                 out["volumes"].append(ST.add_volume(cid, r, role=role, quantity=body.get("quantity"),
-                                                    value_units=body.get("value_units"), source_files=src))
+                                                    value_units=body.get("value_units"), source_files=src,
+                                                    scan_id=scan and scan["id"]))
         shutil.rmtree(d, ignore_errors=True)
         step(1.0, "done")
         if not out["volumes"] and not out["masks"]:
             err = V.ImportFailed("Nothing could be imported.", [c for f in out["failed"] for c in f["checks"]])
             raise err
+        if scan:
+            ST.update_scan(cid, scan["id"], analysis_status="not_analyzed", volume_ids=[v["id"] for v in out["volumes"]],
+                           series=[{"id": v["id"], "name": v["name"], "shape": v["shape"], "zooms": v.get("zooms"),
+                                    "spacing_known": v.get("spacing_known"), "orientation_known": v.get("orientation_known"),
+                                    "frame_id": v.get("frame_id"), "fmt": v.get("fmt")} for v in out["volumes"]],
+                           quality_flags=[c for f in out["failed"] for c in f.get("checks", [])])
+            out["scan_id"] = scan["id"]
         return out
-    return ST.start_job("import", work, case=cid, role=role)
+    return ST.start_job("import", work, case=cid, role=role, scan=scan and scan["id"])
 
 
 def _keep_sources(cid, rec, files):
@@ -210,6 +228,24 @@ def _keep_sources(cid, rec, files):
         shutil.copyfile(p, q)
         out.append(os.path.relpath(q, ST.case_dir(cid)))
     return out
+
+
+def ingest_preserved_scan(cid, scan_id, path, original_filename):
+    """Load a direct-upload file into the imaging case while keeping its scan identity."""
+    recs = V.load_files([(path, original_filename)])
+    out, failed = [], []
+    rel = os.path.relpath(path, ST.case_dir(cid))
+    for rec in recs:
+        if rec.get("failed"):
+            failed.append({"name": rec.get("name"), "checks": rec.get("checks") or []})
+            continue
+        out.append(ST.add_volume(cid, rec, source_files=[rel], scan_id=scan_id))
+    ST.update_scan(cid, scan_id, volume_ids=[v["id"] for v in out],
+                   series=[{"id": v["id"], "name": v["name"], "shape": v["shape"], "zooms": v.get("zooms"),
+                            "spacing_known": v.get("spacing_known"), "orientation_known": v.get("orientation_known"),
+                            "frame_id": v.get("frame_id"), "fmt": v.get("fmt")} for v in out],
+                   quality_flags=[c for f in failed for c in f.get("checks", [])])
+    return {"volumes": out, "failed": failed}
 
 
 def demo_case():
@@ -244,32 +280,50 @@ def start_segmentation(body):
     v = m["volumes"][body["volume"]]
     url = MB.normalize_url(body.get("reader_url") or MB.DEFAULT_READER_URL)
     do_bones = bool(body.get("do_bones", False))
+    scan_id = v.get("scan_id")
+    analysis_model = {"name": "KneeScan", "version": "mri_analysis", "service": url}
+    revision = ST.begin_scan_analysis(m["id"], scan_id, analysis_model, {"do_bones": do_bones, "volume": v["id"]}) if scan_id else None
     MM.slice_geometry(v)                         # refuse early when outputs could not be mapped back
     src = [os.path.join(ST.case_dir(m["id"]), p) for p in v.get("source_files") or []]
     if not src:
         raise ValueError("The original files of this volume were not kept, so the exact scan cannot be sent to the model.")
 
     def work(step):
-        step(0.02, "checking the segmentation service at %s" % url)
-        info = MB.reader_info(url)
-        if not info.get("ok"):
-            raise RuntimeError("Segmentation service unavailable: %s" % info.get("error"))
-        if v["fmt"] == "dicom":
-            tmp = tempfile.mkdtemp(prefix="seg_")
-            path = os.path.join(tmp, "series.zip")
-            with zipfile.ZipFile(path, "w") as z:
-                for p in src:
-                    z.write(p, os.path.basename(p))
-            fname = "series.zip"
-        else:
-            path, fname = src[0], os.path.basename(src[0])
-        step(0.1, "sending the scan to KneeScan")
-        res = MB.analyze_scan(path, fname, do_bones=do_bones, url=url, on_step=lambda k, msg: step(0.5, msg))
-        step(0.9, "mapping the model output into the volume")
-        out = _store_model_result(m["id"], v, res, {"service": url, "do_bones": do_bones, "api": "Gradio /analyze"})
-        out["kneescan"] = res
-        return out
-    return ST.start_job("segment", work, case=m["id"], volume=v["id"])
+        try:
+            step(0.02, "checking the segmentation service at %s" % url)
+            info = MB.reader_info(url)
+            if not info.get("ok"):
+                raise RuntimeError("Segmentation service unavailable: %s" % info.get("error"))
+            if len(src) == 1 and src[0].lower().endswith(".zip"):
+                path, fname = src[0], os.path.basename(src[0])
+            elif v["fmt"] == "dicom":
+                tmp = tempfile.mkdtemp(prefix="seg_")
+                path = os.path.join(tmp, "series.zip")
+                with zipfile.ZipFile(path, "w") as z:
+                    for p in src:
+                        z.write(p, os.path.basename(p))
+                fname = "series.zip"
+            else:
+                path, fname = src[0], os.path.basename(src[0])
+            step(0.1, "sending the scan to KneeScan")
+            res = MB.analyze_scan(path, fname, do_bones=do_bones, url=url, on_step=lambda k, msg: step(0.5, msg))
+            if scan_id and not ST.scan_analysis_current(m["id"], scan_id, revision):
+                raise ValueError("stale analysis result: this scan was reanalyzed while the earlier job was running")
+            step(0.9, "mapping the model output into the volume")
+            out = _store_model_result(m["id"], v, res, {"service": url, "do_bones": do_bones, "api": "Gradio /analyze",
+                                                                      "scan_id": scan_id, "revision": revision})
+            out["kneescan"] = res
+            if scan_id:
+                rd = MB.readings(res)
+                ST.finish_scan_analysis(m["id"], scan_id, revision, analysis_status="complete", analysis=res,
+                                        measurements=rd, mask_ids=[out["mask"]["id"]], review_status="unreviewed",
+                                        quality_flags=out["mask"].get("checks") or [])
+            return out
+        except Exception as exc:
+            if scan_id and ST.scan_analysis_current(m["id"], scan_id, revision):
+                ST.finish_scan_analysis(m["id"], scan_id, revision, analysis_status="failed", missing_information=[str(exc)])
+            raise
+    return ST.start_job("segment", work, case=m["id"], volume=v["id"], scan=scan_id, revision=revision)
 
 
 def _store_model_result(cid, v, res, settings):

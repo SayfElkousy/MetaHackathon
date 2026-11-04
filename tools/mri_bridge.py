@@ -487,7 +487,7 @@ def build_state(r, laterality, filename, run_id=None):
     return state, rows, doc, notes
 
 
-def design_from_result(result, laterality, filename, run_id=None):
+def design_from_result(result, laterality, filename, run_id=None, scan_context=None):
     """Convert verified KneeScan readings into a saved scaffold design state."""
     import server_v2 as V2
     if laterality not in ("right", "left"):
@@ -495,12 +495,27 @@ def design_from_result(result, laterality, filename, run_id=None):
     if not isinstance(result, dict) or "tear" not in result:
         raise ValueError("this is not a KneeScan results file (no tear reading)")
     state, rows, document, notes = build_state(result, laterality, filename, run_id)
+    applied = sorted({str(r.get("param")).split(" ")[0] for r in rows if r.get("result") == "applied" and r.get("param")})
+    geometric = [p for p in applied if p.startswith(("lig.", "fp.", "injury.")) and p != "injury.type"]
+    personalization = "mri_derived" if geometric else "template_awaiting_measurements"
+    mapping_record = {"source_scan": copy.deepcopy(scan_context), "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                      "rows": copy.deepcopy(rows), "applied_parameters": applied, "geometry_parameters": geometric,
+                      "status": personalization, "defaults_remain_for": ["attachment positions", "microscopic channels and grooves",
+                                                                            "braid architecture", "materials", "pretension"]}
+    state["assets"]["mri_design_mapping"] = mapping_record
+    state["case"]["personalization_status"] = personalization
+    if scan_context:
+        state["case"]["source_scan"] = copy.deepcopy(scan_context)
+    state_id = V2.save_state(state)
+    if scan_context and scan_context.get("case") and scan_context.get("scan"):
+        from imaging import store as IST
+        IST.link_scan_design(scan_context["case"], scan_context["scan"], state_id, mapping_record, personalization)
     return {
-        "state_id": V2.save_state(state), "state": state,
+        "state_id": state_id, "state": state,
         "readings": readings(result), "mapping": rows,
         "length_check": length_check(state), "notes": notes,
         "warnings": [], "reader_notes": result.get("warnings") or [], "seconds": result.get("seconds"),
-        "input": result.get("input"), "document": document,
+        "input": result.get("input"), "document": document, "personalization": mapping_record,
     }
 
 
@@ -517,12 +532,13 @@ def _public(job):
                                 "started", "finished", "result") if k in job}
 
 
-def start_job(scan_path, filename, side, do_bones, reader_url):
+def start_job(scan_path, filename, side, do_bones, reader_url, imaging_case=None, scan_id=None, preserved_path=None):
     """Run one upload in the background; `scan_path` (a temp file) is deleted when the reader is done with it."""
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "status": "running", "steps": [{"id": s, "label": l, "state": "pending"} for s, l in STEPS],
            "message": "starting", "error": None, "filename": filename, "side": side, "do_bones": bool(do_bones),
-           "reader_url": reader_url, "started": time.time(), "finished": None, "result": None}
+           "reader_url": reader_url, "started": time.time(), "finished": None, "result": None,
+           "imaging_case": imaging_case, "scan_id": scan_id, "preserved_path": preserved_path}
     with JOBS_LOCK:
         JOBS[jid] = job
         for old in sorted(JOBS, key=lambda k: JOBS[k]["started"])[:-20]:
@@ -543,20 +559,51 @@ def _set_step(job, sid, message):
 
 def _run_job(job, scan_path):
     try:
+        revision = None
+        if job.get("imaging_case") and job.get("scan_id"):
+            from imaging import api as IAPI
+            from imaging import store as IST
+            try:
+                ingest = IAPI.ingest_preserved_scan(job["imaging_case"], job["scan_id"], job["preserved_path"], job["filename"])
+            except Exception as ingest_error:
+                ingest = {"volumes": [], "failed": [{"name": job["filename"], "checks": [{"status": "fail", "message": str(ingest_error)}]}]}
+                IST.update_scan(job["imaging_case"], job["scan_id"],
+                                quality_flags=ingest["failed"][0]["checks"], missing_information=["volume import: %s" % ingest_error])
+            revision = IST.begin_scan_analysis(job["imaging_case"], job["scan_id"],
+                                               {"name": SOURCE, "version": "mri_analysis", "service": job["reader_url"]},
+                                               {"do_bones": job["do_bones"], "volume_ids": [v["id"] for v in ingest["volumes"]]})
         try:
             r = analyze_scan(scan_path, job["filename"], job["do_bones"], job["reader_url"], lambda s, m: _set_step(job, s, m))
         finally:
             shutil.rmtree(os.path.dirname(scan_path), ignore_errors=True)
         _set_step(job, "convert", "converting the readings into modeler parameters")
-        out = design_from_result(r, job["side"], job["filename"], job["id"])
+        if revision is not None:
+            from imaging import store as IST
+            if not IST.scan_analysis_current(job["imaging_case"], job["scan_id"], revision):
+                raise ValueError("stale analysis result: a newer analysis exists for this scan")
+        volume_ids = []
+        if job.get("imaging_case"):
+            volume_ids = (IST.load(job["imaging_case"])["scans"][job["scan_id"]].get("volume_ids") or [])
+        context = {"case": job.get("imaging_case"), "scan": job.get("scan_id"), "volume": volume_ids[0] if volume_ids else None,
+                   "filename": job["filename"], "content_sha256": (IST.load(job["imaging_case"])["scans"][job["scan_id"]].get("content_sha256") if job.get("imaging_case") else None)}
+        out = design_from_result(r, job["side"], job["filename"], job["id"], scan_context=context)
         out.pop("state")
         _set_step(job, "save", "saving the design")
         for s in job["steps"]:
             s["state"] = "done"
-        job["result"] = dict(out, kneescan=r)
+        job["result"] = dict(out, kneescan=r, imaging_case=job.get("imaging_case"), scan_id=job.get("scan_id"))
+        if revision is not None:
+            IST.finish_scan_analysis(job["imaging_case"], job["scan_id"], revision, analysis_status="complete", analysis=r,
+                                     measurements=readings(r), review_status="unreviewed",
+                                     linked_designs=IST.load(job["imaging_case"])["scans"][job["scan_id"]].get("linked_designs", []))
         job["status"], job["message"] = "done", "done"
     except (ReaderError, ValueError) as e:
         job["status"], job["error"] = "error", str(e)
+        if job.get("imaging_case") and job.get("scan_id") and 'revision' in locals() and revision is not None:
+            from imaging import store as IST
+            if IST.scan_analysis_current(job["imaging_case"], job["scan_id"], revision):
+                IST.finish_scan_analysis(job["imaging_case"], job["scan_id"], revision, analysis_status="failed",
+                                         missing_information=[str(e)])
     except Exception as e:
         traceback.print_exc()
         job["status"], job["error"] = "error", "bridge failed: %s" % e

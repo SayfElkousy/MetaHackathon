@@ -184,6 +184,8 @@ class Workspace {
   refreshInspectorSoon() { clearTimeout(this._it); this._it = setTimeout(() => this.refreshInspector(), 120); }
   refresh() {
     renderBrowser(this);
+    const v = this.IM.vol(this.IM.activeVol), scan = v && v.scan_id && this.IM.manifest && (this.IM.manifest.scans || {})[v.scan_id];
+    if ($('activeScan')) $('activeScan').textContent = scan ? scan.original_filename : (v ? v.name : 'No scan selected');
     this.refreshInspector();
     document.querySelectorAll('.wtab').forEach(t => { const l = t.querySelector('.wtabl'); if (l) l.textContent = this.viewTitle(t.dataset.view); });
   }
@@ -219,7 +221,8 @@ class Workspace {
       custom_components: this.custom.list().map(p => this.custom.describe(p)), visible_layers: visible, parameters: params,
       measurements: anns, validation: checks,
       calculated: { minimum_wall_thickness_mm: minimumWall == null ? { status: 'not_evaluated', next_step: 'run an implemented wall-thickness check' } : minimumWall },
-      imaging_evidence: this.IM.manifest ? { findings: this.IM.manifest.findings || [], masks: Object.values(this.IM.manifest.masks || {}).map(m => ({ id: m.id, review: m.review.status, origin: m.origin, labels: m.labels.map(l => l.name) })) } : null,
+      imaging_evidence: this.IM.manifest ? { active_scan: (() => { const v = this.IM.vol(this.IM.activeVol); return v && v.scan_id ? (this.IM.manifest.scans || {})[v.scan_id] || null : null; })(),
+        design_mapping: (S.state.assets || {}).mri_design_mapping || null, findings: this.IM.manifest.findings || [], masks: Object.values(this.IM.manifest.masks || {}).map(m => ({ id: m.id, review: m.review.status, origin: m.origin, labels: m.labels.map(l => l.name) })) } : null,
       recent_changes: this.txn.cards.slice(-8).map(c => ({ revision: c.revision, label: c.label, status: c.status, changes: c.changes.map(x => ({ key: x.key, from: x.from, to: x.to })) })) };
   }
   async listVerifiedFixes() {
@@ -284,7 +287,9 @@ class Workspace {
         if (!r.ok) throw new Error((await r.json()).error);
         done++; this.importState.progress = done / files.length * 0.4; this.importState.message = `uploaded ${done}/${files.length}`; if (done % 10 === 0 || done === files.length) this.refresh();
       }
-      const job = await api('/api/img/import', { case: IM.caseId, batch, role: opt.role, for_volume: IM.activeVol, quantity: opt.quantity, value_units: opt.value_units, resample: opt.resample });
+      const originalNames = files.map(f => f.webkitRelativePath || f.name);
+      const job = await api('/api/img/import', { case: IM.caseId, batch, role: opt.role, for_volume: IM.activeVol, quantity: opt.quantity, value_units: opt.value_units, resample: opt.resample,
+        original_names: originalNames, original_filename: originalNames.length === 1 ? originalNames[0] : `MRI series (${originalNames.length} files)` });
       this.importJob = job.id;
       const res = await this.poll(job.id, j => { this.importState = { status: 'running', message: j.message, progress: 0.4 + 0.6 * j.progress }; this.refresh(); }, ac.signal);
       this.importState = res.status === 'done' ? { status: 'done', result: res.result } : res.status === 'cancelled' ? { status: 'cancelled' } : { status: 'error', error: res.error.message, checks: res.error.checks };
@@ -344,10 +349,11 @@ class Workspace {
   async designFromKneeScan(result, side, filename) {
     const resolvedSide = this.kneeSide(this.IM.activeVol, side);
     if (!resolvedSide) return 'No scaffold yet: choose the knee side and run KneeScan again.';
-    const out = await api('/api/mri/from_result', { result, side: resolvedSide, filename });
+    const volume = this.IM.vol(this.IM.activeVol), scan = volume && volume.scan_id;
+    const out = await api('/api/mri/from_result', { result, side: resolvedSide, filename, case: this.IM.caseId, scan, volume: this.IM.activeVol });
     this.app.loadState(out.state, out.state_id);
     const applied = out.mapping.filter(r => r.result === 'applied').map(r => r.reading.toLowerCase());
-    return `Scaffold built from verified readings (${resolvedSide} knee; applied: ${[...new Set(applied)].join(', ') || 'none'}).`;
+    return `${out.personalization.status === 'mri_derived' ? 'MRI-derived scaffold' : 'Template scaffold — awaiting anatomical measurements'} built (${resolvedSide} knee; applied: ${[...new Set(applied)].join(', ') || 'none'}).`;
   }
   // ---------------------------------------------------------------- evidence -> scaffold (explicit mappings, one transaction)
   async applyEvidence(a) {

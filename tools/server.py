@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import threading
@@ -260,14 +261,27 @@ class H(BaseHTTPRequestHandler):
         except (MB.ReaderError, ValueError) as e:
             self.close_connection = True
             return _send_json(self, 400, {"error": str(e)})
-        jid = MB.start_job(path, os.path.basename(path), side, q.get("bones", ["1"])[0] != "0", reader)
-        return _send_json(self, 200, {"job": jid})
+        # Direct MRI upload also becomes a first-class Imaging record. The
+        # original filename is display metadata; the SHA-256 identifies it.
+        from imaging import store as IST
+        original = os.path.basename(q.get("name", [""])[0] or os.path.basename(path))
+        case = IST.create_case(original, synthetic=False)
+        scan = IST.create_scan(case["id"], original, IST.file_sha256(path), [original], status="analyzing")
+        source_dir = os.path.join(IST.case_dir(case["id"]), "originals", scan["id"])
+        os.makedirs(source_dir, exist_ok=True)
+        preserved = os.path.join(source_dir, IST.safe_name(original))
+        shutil.copyfile(path, preserved)
+        jid = MB.start_job(path, original, side, q.get("bones", ["1"])[0] != "0", reader,
+                           imaging_case=case["id"], scan_id=scan["id"], preserved_path=preserved)
+        return _send_json(self, 200, {"job": jid, "case": case["id"], "scan": scan["id"]})
 
     def _mri_from_result(self, body):
         """Turn KneeScan readings already produced in the workspace into a design."""
         import mri_bridge as MB
         try:
-            out = MB.design_from_result(body.get("result"), body.get("side"), str(body.get("filename") or "scan"))
+            ctx = ({"case": body.get("case"), "scan": body.get("scan"), "volume": body.get("volume")} if body.get("scan") else None)
+            out = MB.design_from_result(body.get("result"), body.get("side"), str(body.get("filename") or "scan"),
+                                        scan_context=ctx)
         except ValueError as e:
             return _send_json(self, 422, {"error": str(e)})
         return _send_json(self, 200, out)
