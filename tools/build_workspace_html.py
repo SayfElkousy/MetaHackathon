@@ -53,6 +53,7 @@ def main():
     <button id="btnAddView" title="Open a view in the active pane">+ View</button>
   </span>
   <span class="designer-head">{head}</span>
+  <span id="activeScan" class="active-scan" title="Active imaging record">No scan selected</span>
   <button id="btnDemoReset" class="demoreset" title="Restore the synthetic evidence, valid scaffold, MPR layout, camera, and a clean Muse conversation">Reset demo</button>
   <button id="btnMuse" class="musebtn" title="Muse assistant (Ctrl/⌘+K)">Muse</button>
 </header>

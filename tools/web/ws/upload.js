@@ -204,6 +204,10 @@ export class MriUpload {
     try {
       const j = await api('/api/v2/state?id=' + encodeURIComponent(sid));
       this.ws.app.loadState(j.state, sid);
+      if (this.job.result.imaging_case) {
+        await this.ws.loadCases();
+        await this.ws.openCase(this.job.result.imaging_case, true);
+      }
       if (!this.ws.layout.visibleViews().includes('scaffold')) this.ws.openKind('scaffold', 'right');
       this.el.close();
       this.ws.toast('Scaffold model built from the MRI readings (' + (j.state.case.label || sid) + ')');

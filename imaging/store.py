@@ -76,7 +76,7 @@ def create_case(label, synthetic=False):
     cid = new_id("c")
     os.makedirs(case_dir(cid), exist_ok=True)
     m = {"id": cid, "label": label or "Untitled case", "synthetic": bool(synthetic), "created": now(), "volumes": {},
-         "masks": {}, "annotations": [], "findings": [], "report_text": "", "log": []}
+         "masks": {}, "annotations": [], "findings": [], "scans": {}, "report_text": "", "log": []}
     save(cid, m)
     return m
 
@@ -123,7 +123,7 @@ VOL_PUBLIC = ("name", "fmt", "shape", "dtype", "affine", "zooms", "units", "orie
               "missing_slices", "source_axcodes", "is_2d")
 
 
-def add_volume(cid, rec, role="image", quantity=None, value_units=None, source_files=None):
+def add_volume(cid, rec, role="image", quantity=None, value_units=None, source_files=None, scan_id=None):
     """Store a loaded series record. Returns the public volume entry."""
     with LOCK:
         m = load(cid)
@@ -131,7 +131,7 @@ def add_volume(cid, rec, role="image", quantity=None, value_units=None, source_f
         sha = _write_raw(os.path.join(case_dir(cid), "vol_%s.raw" % vid), rec["data"])
         ent = {k: copy.deepcopy(rec.get(k)) for k in VOL_PUBLIC if k in rec}
         ent.update(id=vid, role=role, file="vol_%s.raw" % vid, sha1=sha, added=now(), source_files=source_files or [],
-                   model_index_map=rec.get("model_index_map"))
+                   model_index_map=rec.get("model_index_map"), scan_id=scan_id)
         if role == "derived":
             ent["quantity"] = quantity or "unspecified quantity"
             ent["value_units"] = value_units or ""
@@ -139,6 +139,87 @@ def add_volume(cid, rec, role="image", quantity=None, value_units=None, source_f
         log(m, "add_volume", id=vid, name=ent["name"])
         save(cid, m)
         return ent
+
+
+# --------------------------------------------------------------------------- scan identity / analysis records
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def create_scan(cid, original_filename, content_hash, constituent_files=None, status="uploaded"):
+    """Create one persistent imaging identity. Filename is display data; content_hash is identity."""
+    with LOCK:
+        m = load(cid)
+        sid = new_id("scan")
+        rec = {"id": sid, "original_filename": str(original_filename or "scan")[:240],
+               "content_sha256": content_hash, "constituent_files": list(constituent_files or []),
+               "uploaded_at": now(), "analysis_status": status, "analysis_revision": 0,
+               "analysis": None, "volume_ids": [], "mask_ids": [], "measurements": [],
+               "quality_flags": [], "review_status": "unreviewed", "linked_designs": []}
+        m.setdefault("scans", {})[sid] = rec
+        log(m, "create_scan", scan=sid, filename=rec["original_filename"], sha256=content_hash)
+        save(cid, m)
+        return copy.deepcopy(rec)
+
+
+def update_scan(cid, sid, **patch):
+    with LOCK:
+        m = load(cid)
+        rec = m.setdefault("scans", {}).get(sid)
+        if rec is None:
+            raise KeyError("scan not found")
+        rec.update(copy.deepcopy(patch))
+        rec["updated_at"] = now()
+        log(m, "update_scan", scan=sid, fields=sorted(patch))
+        save(cid, m)
+        return copy.deepcopy(rec)
+
+
+def begin_scan_analysis(cid, sid, model, settings=None):
+    with LOCK:
+        m = load(cid); rec = m.setdefault("scans", {})[sid]
+        rec["analysis_revision"] = int(rec.get("analysis_revision", 0)) + 1
+        rec["analysis_status"] = "running"; rec["analysis_started_at"] = now()
+        rec["analysis_model"] = copy.deepcopy(model); rec["analysis_settings"] = copy.deepcopy(settings or {})
+        cache_basis = {"content_sha256": rec.get("content_sha256"), "model": model, "settings": settings or {},
+                       "series": [{k: s.get(k) for k in ("name", "shape", "zooms", "fmt", "frame_id")} for s in rec.get("series") or []]}
+        rec["analysis_cache_key"] = hashlib.sha256(json.dumps(cache_basis, sort_keys=True).encode()).hexdigest()
+        rev = rec["analysis_revision"]
+        log(m, "begin_analysis", scan=sid, revision=rev)
+        save(cid, m)
+        return rev
+
+
+def finish_scan_analysis(cid, sid, revision, **patch):
+    """Apply only the result for the current scan revision; late jobs cannot overwrite newer work."""
+    with LOCK:
+        m = load(cid); rec = m.setdefault("scans", {})[sid]
+        if int(rec.get("analysis_revision", 0)) != int(revision):
+            raise ValueError("stale analysis result for scan %s revision %s" % (sid, revision))
+        rec.update(copy.deepcopy(patch)); rec["analysis_finished_at"] = now(); rec["updated_at"] = now()
+        log(m, "finish_analysis", scan=sid, revision=revision, status=rec.get("analysis_status"))
+        save(cid, m)
+        return copy.deepcopy(rec)
+
+
+def scan_analysis_current(cid, sid, revision):
+    rec = load(cid).get("scans", {}).get(sid) or {}
+    return int(rec.get("analysis_revision", 0)) == int(revision)
+
+
+def link_scan_design(cid, sid, design_id, mapping, status, revision=None):
+    with LOCK:
+        m = load(cid); rec = m.setdefault("scans", {})[sid]
+        link = {"design_id": design_id, "created_at": now(), "analysis_revision": revision or rec.get("analysis_revision"),
+                "personalization_status": status, "mapping": copy.deepcopy(mapping)}
+        rec.setdefault("linked_designs", []).append(link)
+        log(m, "link_design", scan=sid, design=design_id)
+        save(cid, m)
+        return copy.deepcopy(link)
 
 
 def volume_array(cid, vid):
