@@ -106,12 +106,36 @@ def test_missing_millimetres_leave_modeler_defaults():
     assert any("no millimetre value" in n for n in notes)
 
 
-def test_out_of_range_width_is_reported_not_clamped():
-    st, rows, doc, notes = MB.build_state(kneescan_result(width_mm=1.2), "right", "c.npy")
-    assert "ligament" not in doc
-    assert st["params"]["lig.width_profile"] == D.BY_ID["lig.width_profile"]["default"]
-    assert any("leaves the modeler's limits" in n for n in notes)
-    assert st["case"]["exploratory"] is True
+def test_out_of_range_width_still_builds_the_scaffold():
+    """Every MRI gets a scaffold: a width the builder cannot take is applied within its range, not dropped."""
+    spec = D.BY_ID["lig.width_profile"]
+    for w in (1.2, 30.0):
+        st, rows, doc, notes = MB.build_state(kneescan_result(width_mm=w), "right", "c.npy")
+        vals = st["params"]["lig.width_profile"]["v"]
+        assert all(spec["min"] <= x <= spec["max"] for x in vals)
+        assert row(rows, "ACL width")["result"] == "applied" and "kept within" in row(rows, "ACL width")["note"]
+        assert st["provenance"]["lig.width_profile"]["status"] == "awaiting_review"
+        assert "%s mm" % w in st["provenance"]["lig.width_profile"]["note"]      # the measured value is kept
+        assert st["case"]["exploratory"] is True
+        assert not D.validate_params(dict(st["params"]))[0]
+
+
+def test_values_the_builder_cannot_take_fall_back_instead_of_failing(monkeypatch):
+    """If converted readings still break a builder rule, those values fall back to its defaults; no upload fails."""
+    orig = D.validate_params
+    calls = {"n": 0}
+
+    def strict(params):                              # pretend the builder rejects the imported injury type once
+        errs, warns = orig(params)
+        calls["n"] += 1
+        if params.get("injury.type") == "complete" and calls["n"] < 3:
+            errs = errs + [{"param": "injury.type", "message": "not accepted in this test"}]
+        return errs, warns
+    monkeypatch.setattr(D, "validate_params", strict)
+    st, rows, doc, notes = MB.build_state(kneescan_result(), "right", "e.npy")   # does not raise
+    assert st["params"]["injury.type"] == D.BY_ID["injury.type"]["default"]
+    assert any("default" in n for n in notes)                                       # the fallback is recorded
+    assert not orig(dict(st["params"]))[0]                                          # and the design is buildable
 
 
 def test_length_check_reports_modeler_range():
@@ -130,7 +154,7 @@ def test_extreme_publication_outliers_do_not_block_exploratory_scaffold():
     errs, _ = D.validate_params(dict(st["params"]))
     assert not errs
     assert row(rows, "ACL length")["result"] == "recorded"
-    assert row(rows, "ACL width")["result"] == "not applied"
+    assert row(rows, "ACL width")["result"] == "applied"           # kept within the builder's range
     assert build_scene(st, "preview")["ok"]
 
 
@@ -167,6 +191,11 @@ class FakeKneeScan(BaseHTTPRequestHandler):
             ev = "ev1"
             head = [{"msg": "estimation", "event_id": ev, "rank": 0}, {"msg": "process_starts", "event_id": ev},
                     {"msg": "progress", "event_id": ev, "progress_data": [{"progress": 0.2, "desc": "Finding the ACL"}]}]
+            if self.seen.get("lock_once") and not self.seen.get("locked"):
+                self.seen["locked"] = True                   # Windows: the reader could not open the fresh upload yet
+                return self._sse(*head, {"msg": "process_completed", "event_id": ev, "success": False,
+                                         "output": {"error": "Analysis failed: [Errno 13] Permission denied: 'C:\\\\Temp\\\\gradio\\\\x\\\\scan.npy'"}},
+                                 {"msg": "close_stream", "event_id": None})
             if self.seen.get("reject"):
                 return self._sse(*head, {"msg": "process_completed", "event_id": ev, "success": False,
                                          "output": {"error": "Only 5 slices; need a full sagittal stack."}}, {"msg": "close_stream", "event_id": None})
@@ -217,6 +246,16 @@ def test_analyze_scan_round_trip(fake_reader, tmp_path):
     call = FakeKneeScan.seen["call"]
     assert call["fn_index"] == 0 and call["data"][0]["path"] == "/tmp/gradio/abc/scan.npy" and call["data"][1] is True
     assert steps == ["upload", "analyze", "analyze", "results"]      # second "analyze" = the reader's progress text
+
+
+def test_a_momentary_file_lock_is_retried(fake_reader, tmp_path):
+    FakeKneeScan.seen["lock_once"] = True
+    scan = tmp_path / "scan.npy"
+    scan.write_bytes(b"SCANBYTES")
+    steps = []
+    r = MB.analyze_scan(str(scan), "scan.npy", True, fake_reader, lambda s, m: steps.append(m))
+    assert r == FakeKneeScan.result and FakeKneeScan.seen["locked"]
+    assert any("sending it again" in m for m in steps)
 
 
 def test_reader_rejection_is_reported(fake_reader, tmp_path):

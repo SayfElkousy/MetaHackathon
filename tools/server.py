@@ -41,8 +41,8 @@ def _send_json(h, code, obj):
         h.send_header("Content-Length", str(len(b)))
         h.end_headers()
         h.wfile.write(b)
-    except (BrokenPipeError, ConnectionResetError):
-        pass  # the browser cancelled a superseded request
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        pass  # the browser cancelled a superseded request (Windows reports it as ConnectionAbortedError)
 
 
 def _load_fixture_summary(path):

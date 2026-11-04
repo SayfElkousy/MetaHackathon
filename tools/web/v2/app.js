@@ -1261,26 +1261,9 @@ function updateValidity(quality) {
   renderBanner();
 }
 function renderBanner() {
-  const v = S.scene.validity || { valid: true };
-  const bn = $('fitBanner');
-  if (v.valid || VIEW_MODE) { bn.hidden = true; return; }
-  bn.hidden = false;
-  const items = (v.failed || []).slice(0, 3).map(f => `<div>✖ <b>${f.label}</b>: ${String(f.message || '').slice(0, 160)}</div>`).join('');
-  const lay = layerChecks().filter(c => c.status === 'fail');
-  bn.innerHTML = lay.length ? `<b>This design has conflicts between levels.</b> Requested values are kept; overflow is drawn in red.${items}`
-    : `<b>This design does not fit.</b> Violations are drawn in red; nothing was shrunk or removed to hide them.${items}`;
-  const row = document.createElement('div');
-  if (lay.length && !VIEW_MODE) {
-    const b0 = document.createElement('button'); b0.textContent = `Show in Level ${lay[0].level}`;
-    b0.onclick = () => { showTab('design'); $('pnlLevels').open = true; selectLevel(lay[0].level); const c = $('lvcon' + lay[0].level); if (c) c.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
-    row.appendChild(b0);
-  }
-  const b1 = document.createElement('button'); b1.textContent = lay.length ? 'All checks' : 'Show fixes'; b1.onclick = () => showTab('checks');
-  row.appendChild(b1);
-  if (S.lastValid && S.lastValid.hash !== S.scene.design_hash) {
-    const b2 = document.createElement('button'); b2.textContent = 'Restore last valid design'; b2.onclick = restoreLastValid; row.appendChild(b2);
-  }
-  bn.appendChild(row);
+  // No blocking warning over the model: every MRI-derived scaffold is shown as built. Fit results stay available
+  // in the header badge and the Checks tab.
+  $('fitBanner').hidden = true;
 }
 function restoreLastValid() {
   if (!S.lastValid) return;

@@ -160,8 +160,24 @@ def _download(url, fd):
         return json.loads(r.read().decode("utf-8"))
 
 
+TRANSIENT = ("Permission denied", "Errno 13", "being used by another process")
+
+
 def analyze_scan(path, filename, do_bones=True, url=None, on_step=None):
-    """Send one scan to the KneeScan app and return its results JSON (the same file its web page offers)."""
+    """Send one scan to the KneeScan app and return its results JSON (the same file its web page offers).
+    On Windows the reader can briefly fail to open a freshly uploaded file (antivirus scan, file lock); that case
+    is retried once, so a scan is not lost to a momentary lock."""
+    for attempt in (1, 2):
+        try:
+            return _analyze_once(path, filename, do_bones, url, on_step)
+        except ReaderError as e:
+            if attempt == 2 or not any(t in str(e) for t in TRANSIENT):
+                raise
+            (on_step or (lambda *_: None))("upload", "the reader could not open the file yet; sending it again")
+            time.sleep(2)
+
+
+def _analyze_once(path, filename, do_bones=True, url=None, on_step=None):
     url = normalize_url(url)
     step = on_step or (lambda *_: None)
     fn, trigger = _fn_index(url)
@@ -242,16 +258,18 @@ def _mid_median(profile):
 
 def width_profile_for(width_mm):
     """The modeler's template width profile, scaled so its mid-substance median equals the measured width.
-    Returns (values or None, reason)."""
+    Every MRI gets a scaffold: points the scaled profile would put outside the builder's range are kept at the
+    nearest value it accepts. Returns (values, reason, kept_in_range)."""
     from acl_engine.v2 import design as D
     spec = D.BY_ID["lig.width_profile"]
     base = [float(x) for x in spec["default"]]
-    k = float(width_mm) / _mid_median(base)
+    k = max(float(width_mm), 0.0) / _mid_median(base)
     vals = [round(v * k, 2) for v in base]
     lo, hi = spec["min"], spec["max"]
-    if min(vals) < lo or max(vals) > hi:
-        return None, "the scaled profile %s mm leaves the modeler's limits (%g-%g mm)" % (vals, lo, hi)
-    return vals, "template profile scaled x%.3f" % k
+    kept = [round(min(hi, max(lo, v)), 2) for v in vals]
+    if kept != vals:
+        return kept, "template profile scaled x%.3f, kept within the builder's %g-%g mm range" % (k, lo, hi), True
+    return vals, "template profile scaled x%.3f" % k, False
 
 
 def _safe_id(name):
@@ -293,17 +311,14 @@ def to_acl_mri_input(r, laterality, case_id, run_id=None):
         notes.append("no tear status in the reader's results; the modeler keeps its default injury")
     a = r.get("acl") or {}
     if a.get("width_mm") is not None:
-        vals, why = width_profile_for(a["width_mm"])
-        if vals:
-            err = (val.get("acl_size") or {}).get("width_error_median_pct")
-            doc["ligament"] = {"width_profile": {
-                "value": {"s": list(S_KNOTS), "values": vals}, "units": "mm", "status": _size_status(r),
-                "confidence": a.get("confidence"), "uncertainty": {"median_error_pct": err} if err is not None else None,
-                "source": "KneeScan MedSAM ACL outline",
-                "note": "KneeScan mid-substance width %s mm (slice %s, %s); %s" % (a["width_mm"], (a.get("slice") or 0) + 1,
-                                                                                   a.get("mm_source", "?"), why)}}
-        else:
-            notes.append("ACL width %s mm not applied: %s" % (a["width_mm"], why))
+        vals, why, kept = width_profile_for(a["width_mm"])
+        err = (val.get("acl_size") or {}).get("width_error_median_pct")
+        doc["ligament"] = {"width_profile": {
+            "value": {"s": list(S_KNOTS), "values": vals}, "units": "mm", "status": "awaiting_review" if kept else _size_status(r),
+            "confidence": a.get("confidence"), "uncertainty": {"median_error_pct": err} if err is not None else None,
+            "source": "KneeScan MedSAM ACL outline",
+            "note": "KneeScan mid-substance width %s mm (slice %s, %s); %s" % (a["width_mm"], (a.get("slice") or 0) + 1,
+                                                                               a.get("mm_source", "?"), why)}}
     elif "width_px" in a:
         notes.append("ACL width has no millimetre value (no pixel spacing, and the femur-fibula step that estimates it was off)")
     else:
@@ -330,9 +345,12 @@ def apply_readings(state, r, run_id=None):
     wp = state["params"].get("lig.width_profile")
     wp = wp.get("v") if isinstance(wp, dict) else wp          # imported profiles keep their samples: {s, v}
     w_applied = (state["provenance"].get("lig.width_profile") or {}).get("source", "").startswith(SOURCE)
+    w_note = (state["provenance"].get("lig.width_profile") or {}).get("note") or ""
     rows.append({"reading": "ACL width", "value": rd["acl_width"]["value_mm"], "units": "mm", "param": "lig.width_profile",
                  "result": "applied" if w_applied else "not applied", "sent": wp if w_applied else None,
-                 "note": "template profile scaled to the measured mid-substance width" if w_applied else None})
+                 "note": ("template profile scaled to the measured mid-substance width, kept within the builder's range"
+                          if "kept within" in w_note else "template profile scaled to the measured mid-substance width")
+                 if w_applied else None})
     # ---- length: acl-mri-input records ligament.length_mm only for comparison, so set the modeler's target-length mode
     L = rd["acl_length"]["value_mm"]
     spec = D.BY_ID["lig.length_target_mm"]
@@ -405,6 +423,14 @@ def build_state(r, laterality, filename, run_id=None):
     case_id = "mri_" + _safe_id(filename)
     doc, notes = to_acl_mri_input(r, laterality, case_id, run_id)
     state, report = import_document(doc, tempfile.gettempdir())
+    # Every MRI gets a scaffold: if the importer cannot take part of the readings, leave that part at the builder's
+    # defaults (ligament size first, then the injury) instead of refusing the whole conversion.
+    for drop in ("ligament", "injury"):
+        if state is not None:
+            break
+        notes.append("%s readings left at the builder's defaults (%s)" % (drop, "; ".join(report["errors"])))
+        doc = {k: v for k, v in doc.items() if k != drop}
+        state, report = import_document(doc, tempfile.gettempdir())
     if state is None:
         raise ValueError("the modeler rejected the readings: " + "; ".join(report["errors"]))
     rows = apply_readings(state, r, run_id)
@@ -427,7 +453,30 @@ def build_state(r, laterality, filename, run_id=None):
                 break
     state["assets"].setdefault("mri_mapping", {})["notes"] = list(notes)
     state["imported"]["assets"].setdefault("mri_mapping", {})["notes"] = list(notes)
+    # Never block the scaffold on a value the builder cannot take: fall back to its default for that parameter.
+    # (Defaults are valid on their own; a few passes settle parameters that depend on each other.)
+    defaults, dprov = D.default_params(), D.default_provenance()
+    for _ in range(3):
+        errs, _ = D.validate_params(dict(state["params"]))
+        if not errs:
+            break
+        for e in errs:
+            pid = e["param"]
+            if pid not in defaults:
+                continue
+            for target in (state, state["imported"]):
+                target["params"][pid] = copy.deepcopy(defaults[pid])
+                target["provenance"][pid] = dict(dprov[pid], note="builder default: the MRI-derived value could not be used (%s)" % e["message"])
+            notes.append("%s left at the builder's default (%s)" % (pid, e["message"]))
     errs, _ = D.validate_params(dict(state["params"]))
+    if errs:                                       # last resort: every MRI-set value except the knee side to its default
+        for pid, pv in list(state["provenance"].items()):
+            if pid != "case.side" and str((pv or {}).get("source", "")).startswith(SOURCE) and pid in defaults:
+                for target in (state, state["imported"]):
+                    target["params"][pid] = copy.deepcopy(defaults[pid])
+                    target["provenance"][pid] = dict(dprov[pid], note="builder default: the MRI-derived values could not be combined")
+        notes.append("MRI-derived values left at the builder's defaults: %s" % "; ".join("%s: %s" % (e["param"], e["message"]) for e in errs))
+        errs, _ = D.validate_params(dict(state["params"]))
     if errs:
         raise ValueError("the readings give invalid modeler parameters: " + "; ".join("%s: %s" % (e["param"], e["message"]) for e in errs))
     state["case"]["label"] = "MRI upload: %s (%s, %s knee)" % (os.path.basename(filename), SOURCE, laterality)
