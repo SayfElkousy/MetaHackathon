@@ -12,6 +12,8 @@
      "cwd": "${workspaceFolder}", "console": "integratedTerminal", "env": {"PYTHONPATH": "${workspaceFolder}"}},
     {"name": "4. Open interactive designer (N3)", "type": "debugpy", "request": "launch",
      "program": "${workspaceFolder}/tools/server.py", "cwd": "${workspaceFolder}", "console": "integratedTerminal",
-     "env": {"PYTHONPATH": "${workspaceFolder}"}}
+     "env": {"PYTHONPATH": "${workspaceFolder}"}},
+    {"name": "5. Start MRI reader (KneeScan, for /upload)", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/mri_analysis/app.py", "cwd": "${workspaceFolder}/mri_analysis", "console": "integratedTerminal"}
   ]
 }

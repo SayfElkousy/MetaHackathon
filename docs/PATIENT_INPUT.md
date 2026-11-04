@@ -17,6 +17,7 @@ The geometry engine never calls the analysis model. It reads only this document,
 | Python | `acl_engine.v2.patient.import_file(path)` → `(state, report)`, `import_document(dict, base_dir)` |
 | HTTP | `POST /api/v2/import` with `{"case": "<fixture dir>"}` or `{"document": {...}, "assets": {"name.stl": "<base64>"}, "mode": "replace"|"merge", "current": <state>}` |
 | Browser | **Open / import** → choose the JSON and every file it references |
+| MRI upload | `/upload`: a scan goes to the KneeScan reader (`mri_analysis/app.py`), and `tools/mri_bridge.py` turns its results into this document, imports it and opens the design (see README, "MRI upload") |
 | Merge | `merge_import(current_state, new_state, "merge")` keeps manual overrides and returns conflicts |
 
 The import is rejected (HTTP 422 with a list of problems) when the schema version is unsupported, a transform is not affine, units are wrong for a quantity, a referenced file is missing, or a value breaks a parameter's limits. Nothing is silently clamped.

@@ -132,6 +132,10 @@ class H(BaseHTTPRequestHandler):
         # v2 designer at "/", separate viewer at "/view", previous N3 page at "/classic"
         if u.path in ("/", "/view", "/index.html"):
             return self._serve_file(os.path.join(WEB, "v2", "index.html"), "text/html")
+        if u.path == "/upload":
+            return self._serve_file(os.path.join(WEB, "v2", "upload.html"), "text/html")
+        if u.path.startswith("/api/mri/"):
+            return self._mri_get(u)
         if u.path == "/classic":
             return self._serve_file(os.path.join(WEB, "index.html"), "text/html")
         if u.path.startswith("/v2/"):
@@ -203,8 +207,42 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    # ---- MRI upload bridge (tools/mri_bridge.py): scan -> KneeScan reader -> readings -> design state
+    def _mri_get(self, u):
+        import mri_bridge as MB
+        q = parse_qs(u.query)
+        if u.path == "/api/mri/reader":
+            url = q.get("url", [""])[0] or MB.DEFAULT_READER_URL
+            return _send_json(self, 200, dict(MB.reader_info(url), default_url=MB.DEFAULT_READER_URL))
+        if u.path == "/api/mri/job":
+            job = MB.job_status(q.get("id", [""])[0])
+            if job is None:
+                return _send_json(self, 404, {"error": "upload job not found", "hint": "the server may have restarted; upload again"})
+            return _send_json(self, 200, job)
+        return _send_json(self, 404, {"error": "not found", "hint": "GET /api/mri/reader /api/mri/job"})
+
+    def _mri_upload(self, u):
+        """POST /api/mri/upload?name=<file>&side=right|left&bones=1|0&reader=<url>, body = the scan bytes."""
+        import mri_bridge as MB
+        q = parse_qs(u.query)
+        side = q.get("side", [""])[0]
+        if side not in ("right", "left"):
+            self.close_connection = True          # the scan body was not read
+            return _send_json(self, 400, {"error": "choose the knee side (right or left)", "field": "side"})
+        try:
+            reader = MB.normalize_url(q.get("reader", [""])[0] or MB.DEFAULT_READER_URL)
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            path = MB.receive_scan(self.rfile, n, q.get("name", [""])[0])
+        except (MB.ReaderError, ValueError) as e:
+            self.close_connection = True
+            return _send_json(self, 400, {"error": str(e)})
+        jid = MB.start_job(path, os.path.basename(path), side, q.get("bones", ["1"])[0] != "0", reader)
+        return _send_json(self, 200, {"job": jid})
+
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/mri/upload":
+            return self._mri_upload(u)
         body, err = self._read_json()
         if err == "too_large":
             return _send_json(self, 413, {"error": "body over 2MB", "field": "body", "hint": "send a smaller request"})

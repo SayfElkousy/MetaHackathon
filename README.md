@@ -8,6 +8,26 @@
 - Adjustable hierarchy (bundles → fascicle groups → representative fibers), separate twist channels, multiphasic regions.
 - **Scaffold Levels** (default construct): six editable levels — 1 surface coating/nano-texture, 2 grooves, 3 hollow channels, 4 braided AM-like/PL-like mantles, 5 ribbon sheath, 6 flared graded ends — with highlight/isolate/neighbour views, a level cross-section, true-scale magnified details, and conflicts with tested fixes. Knee pose, tear and reference anatomy are in the separate **Anatomy and Pose** panel. See `docs/V2_REPORT.md` §9; engine `acl_engine/v2/layered.py`. The earlier gap-filling braided/aligned scaffold remains available as a construct type.
 - Patient-specific input from an MRI-analysis model: `docs/PATIENT_INPUT.md`; synthetic fixtures in `fixtures/patients/`.
+- **MRI upload** (`/upload`, or **Upload MRI** in the designer header): send a scan to the KneeScan MRI reader (`mri_analysis/`) and build the model from its readings. See "MRI upload" below.
+
+## MRI upload: scan → KneeScan → designer
+
+1. Start the MRI reader (its own environment: `pip install -r mri_analysis/requirements.txt`, weights via `mri_analysis/fetch_weights.py`):
+   `cd mri_analysis` then `python app.py` (http://127.0.0.1:7860). Or run `mri_analysis/KneeScan_Colab.ipynb` and paste its `gradio.live` link on the upload page. Set `KNEESCAN_URL` to change the default address.
+2. `python tools/server.py`, open http://127.0.0.1:8000/upload, choose the scan and the knee side, press **Analyze and send to the modeler**.
+3. Review the readings and what was sent, then **Build the ACL model in the designer**.
+
+`tools/mri_bridge.py` does the transfer only; neither the reader nor the modeler changed. It calls the reader's own Gradio API (`/analyze`, the same call its web page makes), converts the results to `acl-mri-input` and runs the modeler's importer (`acl_engine/v2/patient.py`):
+
+| KneeScan reading | Modeler parameter |
+|---|---|
+| tear status + level | `injury.type` (intact / partial / complete). Partial tears also get `injury.involvement = AM`, marked *awaiting review*, because the modeler needs a torn region and KneeScan does not give one |
+| ACL width (mid-substance) | `lig.width_profile`: the template profile scaled so its mid-substance median equals the reading |
+| ACL length | `lig.length_mode = target`, `lig.length_target_mm`. With the template attachments the modeler reaches about 32.5–36.8 mm and flags anything outside |
+| ACL location (slice, box) | recorded with the design (`assets.mri_readings`); the modeler has no image-location input |
+| femur → fibular head | recorded with the design; the modeler has no fibula |
+
+Sizes from a torn ACL or a failed outline check are marked *awaiting review*, following KneeScan's own warnings. Tests: `tests/test_mri_bridge.py`.
 - What changed, how it was verified, limitations: `docs/V2_REPORT.md`; screenshots in `docs/screenshots/`.
 - Engine: `acl_engine/v2/`; tests: `pytest` (`tests/test_v2.py`).
 

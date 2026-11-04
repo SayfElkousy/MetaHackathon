@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MRI Upload</title>
+<link rel="stylesheet" href="/v2/style.css">
+<style>
+body{display:block;overflow:auto}
+.wrap{max-width:1040px;margin:0 auto;padding:16px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px;min-width:0}
+.card h2{font-size:13px;margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.card h2 .n{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;align-items:center;justify-content:center}
+.note{color:var(--muted);font-size:12px;margin:6px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chk{display:flex;gap:8px;align-items:flex-start}.chk input{margin-top:3px}
+input[type=text]{font:inherit;padding:4px 9px;border:1px solid var(--line);border-radius:5px;flex:1;min-width:180px}
+code{font:12px ui-monospace,monospace;background:var(--na-bg);padding:0 4px;border-radius:3px}
+#drop{border:1.5px dashed var(--line);border-radius:8px;padding:18px;text-align:center;cursor:pointer;margin:6px 0 10px}
+#drop.over,#drop:hover{border-color:var(--accent);background:#f3f8f7}
+#drop b{display:block;margin-bottom:2px}
+.seg{border-radius:0}.seg:first-child{border-radius:5px 0 0 5px}.seg:last-child{border-radius:0 5px 5px 0;margin-left:-1px}
+.seg.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.big{padding:7px 14px;font-weight:600}
+.steps{list-style:none;margin:0;padding:0}
+.steps li{display:flex;gap:8px;align-items:center;padding:3px 0}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--na-bg);border:1px solid var(--line);flex-shrink:0}
+.steps li.running .dot{background:var(--warn-bg);border-color:var(--warn);animation:pulse 1s infinite}
+.steps li.done .dot{background:var(--pass);border-color:var(--pass)}
+.steps li.failed .dot{background:var(--fail);border-color:var(--fail)}
+@keyframes pulse{50%{opacity:.35}}
+#bar{height:6px;background:var(--na-bg);border-radius:3px;overflow:hidden;margin:6px 0}#bar>div{height:100%;width:0;background:var(--accent)}
+.err{background:var(--fail-bg);color:var(--fail);border-radius:6px;padding:8px 10px;margin-top:8px}
+.warnbox{background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:8px 10px;margin:8px 0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.rd{border:1px solid var(--line);border-radius:7px;padding:10px 12px}
+.rd h4{margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.rd .big{font-size:20px;font-weight:650;line-height:1.2}
+.rd .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+.torn{color:var(--fail)}.ok{color:var(--pass)}
+table.t{width:100%;border-collapse:collapse;font-size:12px}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+table.t th{color:var(--muted);font-weight:600}
+.tablewrap{overflow-x:auto}
+ul.w{margin:6px 0 0;padding-left:18px;font-size:12px}
+a.btn{display:inline-block;text-decoration:none;font:inherit;padding:7px 14px;border-radius:5px;border:1px solid var(--line);color:inherit;background:var(--panel)}
+a.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+</style>
+</head><body>
+<header id="top">
+  <b class="brand">ACL repair designer</b>
+  <span class="case">MRI upload</span>
+  <span class="grow"></span>
+  <a class="btn" href="/">Open designer</a>
+</header>
+<div class="wrap">
+  <p class="note">Upload a sagittal knee MRI. The scan goes to the MRI reader (KneeScan), its readings come back here, and they are handed to the ACL modeler, which builds the model as usual. <i>Research prototype, not for clinical use.</i></p>
+  <div class="grid">
+    <section class="card">
+      <h2><span class="n">1</span> MRI reader <span id="readerPill" class="pill">checking…</span></h2>
+      <div class="row"><input id="readerUrl" type="text" spellcheck="false" aria-label="MRI reader address"><button id="btnCheck">Check</button></div>
+      <p id="readerMsg" class="note"></p>
+      <p class="note">Start it locally with <code>cd mri_analysis</code> then <code>python app.py</code> (address <code>http://127.0.0.1:7860</code>), or paste the <code>…gradio.live</code> link printed by <code>mri_analysis/KneeScan_Colab.ipynb</code>.</p>
+    </section>
+    <section class="card">
+      <h2><span class="n">2</span> Scan</h2>
+      <div id="drop" tabindex="0" role="button" aria-label="Choose an MRI file"><b id="fileName">Choose or drop an MRI file</b><span class="note">.zip of a DICOM series, .dcm, .nii / .nii.gz, KneeMRI .pck or MRNet .npy</span></div>
+      <input id="file" type="file" accept=".zip,.dcm,.nii,.gz,.npy,.pck" hidden>
+      <div class="row" style="margin-bottom:8px"><span>Knee side</span>
+        <span role="group" aria-label="Knee side"><button class="seg" data-side="right">Right</button><button class="seg" data-side="left">Left</button></span>
+        <span class="note">the reader cannot tell left from right</span></div>
+      <label class="chk"><input id="bones" type="checkbox" checked> Measure femur → fibular head (experimental, adds about a minute)</label>
+      <p class="note" style="margin-left:22px">Files without pixel spacing (.npy, .pck) get their millimetres from this step, so leave it on for them.</p>
+      <div class="row"><button id="btnGo" class="primary big" disabled>Analyze and send to the modeler</button><span id="goHint" class="note"></span></div>
+    </section>
+  </div>
+  <section class="card" id="progCard" hidden>
+    <h2><span class="n">3</span> Progress <span id="elapsed" class="mono muted"></span></h2>
+    <div id="upWrap"><div class="note" id="upTxt">uploading…</div><div id="bar"><div></div></div></div>
+    <ul class="steps" id="steps"></ul>
+    <p id="stepMsg" class="note mono"></p>
+    <div id="jobErr" class="err" hidden></div>
+  </section>
+  <section class="card" id="resCard" hidden>
+    <h2><span class="n">4</span> Readings from the MRI reader <span id="resMeta" class="mono muted"></span></h2>
+    <div class="cards" id="readings"></div>
+    <ul class="w" id="readerWarn"></ul>
+  </section>
+  <section class="card" id="mapCard" hidden>
+    <h2><span class="n">5</span> Sent to the ACL modeler</h2>
+    <div id="lenWarn" class="warnbox" hidden></div>
+    <div class="tablewrap"><table class="t" id="mapTable"></table></div>
+    <p class="note">Every value keeps its source (KneeScan), run id and status in the design, so the designer can reset any edit back to it. Values marked <span class="chip awaiting_review">awaiting_review</span> come with a KneeScan warning (torn ligament or failed outline check).</p>
+    <div class="row" style="margin-top:10px">
+      <a id="openModel" class="btn primary" href="/">Build the ACL model in the designer</a>
+      <button id="dlReadings">Download KneeScan results</button>
+      <button id="dlDoc">Download acl-mri-input JSON</button>
+    </div>
+  </section>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } } };
+let file = null, side = null, readerOk = false, busy = false, lastJob = null, t0 = 0, tick = null;
+
+async function getJSON(u) { const r = await fetch(u); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+
+async function checkReader() {
+  const url = $('readerUrl').value.trim();
+  $('readerPill').className = 'pill busy'; $('readerPill').textContent = 'checking…';
+  try {
+    const j = await getJSON('/api/mri/reader?url=' + encodeURIComponent(url));
+    if (!url) $('readerUrl').value = j.url || j.default_url;
+    readerOk = !!j.ok;
+    $('readerPill').className = 'pill ' + (j.ok ? 'ok' : 'fail'); $('readerPill').textContent = j.ok ? 'connected' : 'not reachable';
+    $('readerMsg').textContent = j.ok ? 'KneeScan is answering at ' + j.url : j.error;
+    if (j.ok) store.set('acl.mri.reader', j.url);
+  } catch (e) { readerOk = false; $('readerPill').className = 'pill fail'; $('readerPill').textContent = 'error'; $('readerMsg').textContent = e.message; }
+  refresh();
+}
+
+function refresh() {
+  const why = !file ? 'choose a scan' : !side ? 'choose the knee side' : !readerOk ? 'the MRI reader is not reachable' : '';
+  $('btnGo').disabled = busy || !!why; $('goHint').textContent = busy ? '' : why;
+}
+
+function pickFile(f) {
+  if (!f) return;
+  file = f; $('fileName').textContent = f.name + '  ·  ' + (f.size / 1048576).toFixed(1) + ' MB'; refresh();
+}
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('file').onchange = e => pickFile(e.target.files[0]);
+['dragover', 'dragenter'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => pickFile(e.dataTransfer.files[0]));
+document.querySelectorAll('button[data-side]').forEach(b => b.onclick = () => {
+  side = b.dataset.side; document.querySelectorAll('button[data-side]').forEach(x => x.classList.toggle('on', x === b)); refresh();
+});
+$('btnCheck').onclick = checkReader;
+$('readerUrl').onkeydown = e => { if (e.key === 'Enter') checkReader(); };
+
+function renderSteps(steps) {
+  $('steps').innerHTML = steps.map(s => `<li class="${s.state}"><span class="dot"></span>${esc(s.label)}</li>`).join('');
+}
+
+$('btnGo').onclick = () => {
+  busy = true; refresh();
+  ['resCard', 'mapCard'].forEach(id => $(id).hidden = true);
+  $('progCard').hidden = false; $('jobErr').hidden = true; $('upWrap').hidden = false;
+  renderSteps([{ label: 'Upload the scan to the designer server', state: 'running' }]);
+  t0 = Date.now(); clearInterval(tick); tick = setInterval(() => { $('elapsed').textContent = Math.round((Date.now() - t0) / 1000) + ' s'; }, 500);
+  const q = new URLSearchParams({ name: file.name, side, bones: $('bones').checked ? '1' : '0', reader: $('readerUrl').value.trim() });
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/mri/upload?' + q.toString());
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.upload.onprogress = e => { if (e.lengthComputable) { const p = 100 * e.loaded / e.total; $('bar').firstChild.style.width = p + '%'; $('upTxt').textContent = 'uploading… ' + p.toFixed(0) + '%'; } };
+  xhr.onload = () => {
+    let j = {}; try { j = JSON.parse(xhr.responseText); } catch (e) { /* ignore */ }
+    if (xhr.status !== 200) return fail(j.error || ('upload failed (HTTP ' + xhr.status + ')'));
+    $('upWrap').hidden = true; poll(j.job);
+  };
+  xhr.onerror = () => fail('upload failed: the designer server did not answer');
+  xhr.send(file);
+};
+
+function fail(msg) {
+  busy = false; clearInterval(tick); refresh();
+  $('jobErr').hidden = false; $('jobErr').textContent = '✖ ' + msg;
+}
+
+async function poll(id) {
+  let j;
+  try { j = await getJSON('/api/mri/job?id=' + encodeURIComponent(id)); } catch (e) { return fail(e.message); }
+  renderSteps(j.steps);
+  $('stepMsg').textContent = j.status === 'running' ? j.message : '';
+  if (j.status === 'running') return setTimeout(() => poll(id), 1000);
+  if (j.status === 'error') return fail(j.error);
+  busy = false; clearInterval(tick); refresh();
+  lastJob = j; renderResult(j);
+}
+
+const fmt = (v, d = 1) => v == null ? '—' : (+v).toFixed(d);
+function card(title, big, sub, cls) { return `<div class="rd"><h4>${esc(title)}</h4><div class="big ${cls || ''}">${big}</div><div class="sub">${sub || ''}</div></div>`; }
+
+function renderResult(j) {
+  const r = j.result, rd = r.readings;
+  $('resMeta').textContent = (r.input && r.input.file ? r.input.file + ' · ' : '') + (r.seconds != null ? 'reader took ' + r.seconds + ' s' : '');
+  const torn = rd.tear_status.value === 'torn';
+  const L = rd.acl_length, W = rd.acl_width, loc = rd.acl_location, ff = rd.femur_fibula;
+  const check = x => x.passed_checks === false ? ' <span class="pill tiny warn">check outline</span>' : '';
+  const sizeSub = x => x.value_mm != null ? `${esc(x.value_px)} px · ${esc(x.mm_source || '')}` : esc(x.error || 'no millimetre value');
+  $('readings').innerHTML = [
+    card('ACL tear', torn ? 'Torn' : (rd.tear_status.value === 'intact' ? 'Intact' : '—'), `tear probability ${fmt(rd.tear_status.probability, 2)} (cut-off ${fmt(rd.tear_status.threshold, 2)})`, torn ? 'torn' : 'ok'),
+    card('Tear level', esc(rd.tear_level.value || '—') + (torn ? ' <span class="pill tiny warn">low reliability</span>' : ''), torn ? 'partial vs complete is the weakest reading' : 'no tear predicted'),
+    card('ACL length', L.value_mm != null ? fmt(L.value_mm) + ' mm' + check(L) : '—', sizeSub(L)),
+    card('ACL width (mid-substance)', W.value_mm != null ? fmt(W.value_mm) + ' mm' + check(W) : '—', sizeSub(W)),
+    card('ACL location', loc.slice != null ? `Slice ${loc.slice + 1}${loc.slices ? ' of ' + loc.slices : ''}` : '—', loc.box_px ? `box x ${loc.box_px[0]}–${loc.box_px[2]}, y ${loc.box_px[1]}–${loc.box_px[3]} px · score ${fmt(loc.score, 2)}` : ''),
+    card('Femur → fibular head', ff && ff.value_mm != null ? fmt(ff.value_mm) + ' mm <span class="pill tiny warn">experimental</span>' + check(ff) : '—',
+      ff ? (ff.value_mm != null ? `${esc(ff.value_px)} px · slice ${ff.slice + 1} · ${esc(ff.mm_source || '')}` : esc(ff.error || '')) : 'not measured (step was off)'),
+  ].join('');
+  $('readerWarn').innerHTML = (r.warnings || []).map(w => `<li>${esc(w)}</li>`).join('');
+  $('resCard').hidden = false;
+
+  const pill = s => `<span class="pill tiny ${s === 'applied' ? 'ok' : s === 'recorded' ? '' : 'warn'}">${esc(s)}</span>`;
+  const val = row => {
+    if (row.reading === 'ACL location') { const l = row.value || {}; return l.slice != null ? 'slice ' + (l.slice + 1) : '—'; }
+    return row.value == null ? '—' : esc(typeof row.value === 'number' ? fmt(row.value) : row.value) + (row.units ? ' ' + row.units : '');
+  };
+  const sent = row => row.sent == null ? '' : '<br><span class="mono muted">= ' + esc(Array.isArray(row.sent) ? '[' + row.sent.join(', ') + ']' : row.sent) + '</span>';
+  $('mapTable').innerHTML = '<tr><th>Reading</th><th>Value</th><th>Modeler parameter</th><th>Result</th><th>Note</th></tr>' + r.mapping.map(row =>
+    `<tr><td>${esc(row.reading)}</td><td class="mono">${val(row)}</td><td class="mono">${row.param ? esc(row.param) + sent(row) : '—'}</td><td>${pill(row.result)}</td><td class="muted">${esc(row.note || '')}</td></tr>`).join('');
+  const lc = r.length_check;
+  $('lenWarn').hidden = !(lc && lc.ok === false);
+  if (lc && lc.ok === false) $('lenWarn').innerHTML = '⚠ The modeler will flag the length: ' + esc(lc.message) +
+    (lc.achievable_mm && lc.achievable_mm.length ? ` With the current attachment positions it can reach ${lc.achievable_mm[0]}–${lc.achievable_mm[1]} mm; move a footprint centre in the designer to fit ${fmt(lc.target_mm)} mm.` : '');
+  (r.notes || []).forEach(n => { $('lenWarn').hidden = false; $('lenWarn').innerHTML += ($('lenWarn').innerHTML ? '<br>' : '') + '⚠ ' + esc(n); });
+  $('openModel').href = '/?state=' + encodeURIComponent(r.state_id);
+  $('mapCard').hidden = false;
+  $('mapCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function download(name, obj) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' })); a.download = name; a.click(); }
+$('dlReadings').onclick = () => lastJob && download('kneescan_' + lastJob.id + '.json', lastJob.result.kneescan);
+$('dlDoc').onclick = () => lastJob && download('acl-mri-input_' + lastJob.id + '.json', lastJob.result.document);
+
+$('readerUrl').value = store.get('acl.mri.reader') || '';
+checkReader();
+</script>
+</body></html>
