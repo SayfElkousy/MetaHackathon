@@ -224,8 +224,13 @@ def test_upload_route_end_to_end(fake_reader, tmp_path, monkeypatch):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = "http://127.0.0.1:%d" % srv.server_address[1]
     try:
-        html = urllib.request.urlopen(base + "/upload").read().decode()
-        assert "Analyze and send to the modeler" in html
+        # one page: the workspace at "/" carries the upload dialog; the old page addresses lead there
+        html = urllib.request.urlopen(base + "/").read().decode()
+        assert 'id="wsMain"' in html and "/ws/ws.js" in html and 'id="btnUpload"' in html
+        assert "Analyze and send to the scaffold builder" in urllib.request.urlopen(base + "/ws/upload.js").read().decode()
+        for old, lands in (("/upload", "/"), ("/classic", "/"), ("/workspace?state=abc123", "/?state=abc123")):
+            r = urllib.request.urlopen(base + old)
+            assert r.geturl() == base + lands and 'id="wsMain"' in r.read().decode()
         st = json.load(urllib.request.urlopen(base + "/api/mri/reader?url=" + fake_reader))
         assert st["ok"]
         req = urllib.request.Request(base + "/api/mri/upload?name=0007.npy&side=right&bones=1&reader=" + fake_reader,
@@ -251,5 +256,31 @@ def test_upload_route_end_to_end(fake_reader, tmp_path, monkeypatch):
         with pytest.raises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(noside)
         assert e.value.code == 400
+    finally:
+        srv.shutdown()
+
+
+def test_design_from_a_result_the_workspace_already_has(tmp_path, monkeypatch):
+    """The imaging workspace runs KneeScan itself; with no design loaded, its result builds the first one."""
+    import server as SRV
+    import server_v2 as V2
+    monkeypatch.setattr(V2, "STORE", str(tmp_path / "store"))
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), SRV.H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = "http://127.0.0.1:%d" % srv.server_address[1]
+
+    def post(body):
+        req = urllib.request.Request(base + "/api/mri/from_result", data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        return json.load(urllib.request.urlopen(req))
+    try:
+        out = post({"result": kneescan_result("torn", "partial tear"), "side": "left", "filename": "sag_pd.zip"})
+        assert out["state"]["params"]["injury.type"] == "partial" and out["state"]["params"]["case.side"] == "left"
+        saved = json.load(urllib.request.urlopen(base + "/api/v2/state?id=" + out["state_id"]))["state"]
+        assert saved["params"]["lig.length_target_mm"] == pytest.approx(33.8)
+        for bad, msg in (({"result": kneescan_result()}, "knee side"), ({"result": {"acl": {}}, "side": "right"}, "not a KneeScan")):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                post(bad)
+            assert e.value.code == 422 and msg in json.load(e.value)["error"]
     finally:
         srv.shutdown()

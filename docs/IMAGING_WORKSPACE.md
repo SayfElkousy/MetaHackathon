@@ -1,7 +1,7 @@
 # Imaging workspace and Muse controller
 
-Open `http://127.0.0.1:8000/workspace` after `python tools/server.py` (or `tools/run_workspace.sh`, which uses `.venv`
-and opens no browser tab). The previous designer stays at `/`; the workspace loads the same designer script in the
+Open `http://127.0.0.1:8000/` (the one page; `/workspace` leads there) after `python tools/server.py` (or `tools/run_workspace.sh`, which uses `.venv`
+and opens no browser tab). The scaffold designer is part of this page: the workspace loads the designer script in the
 same page, so the scaffold controls, the 3D view and Muse share **one** design state.
 
 Extra Python dependencies for imaging: `nibabel`, `pydicom`, `SimpleITK`, `pillow` (already in

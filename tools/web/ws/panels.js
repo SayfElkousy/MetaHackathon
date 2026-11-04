@@ -249,12 +249,21 @@ function segBox(ws, v) {
   const url = h('input', { value: ws.readerUrl || '', placeholder: 'http://127.0.0.1:7860', 'data-ctl': '(segmentation service URL)', onchange: e => { ws.readerUrl = e.target.value; ws.checkReader(); } });
   const bones = h('input', { type: 'checkbox', 'data-ctl': '(segment bones)' });
   const file = h('input', { type: 'file', accept: '.json', 'data-ctl': '(import KneeScan results)' });
-  file.onchange = async () => { const f = file.files[0]; if (!f) return; try { const r = JSON.parse(await f.text()); await ws.importModelResult(v.id, r, f.name); } catch (e) { alert('Not imported: ' + e.message); } };
+  // No design yet: KneeScan's readings build the first one, and the modeler needs the knee side (KneeScan cannot tell).
+  const first = !window.__app.S.state, guess = ws.kneeSide(v.id);
+  if (ws.segSide === undefined) ws.segSide = guess;
+  const side = h('select', { 'data-ctl': '(knee side for the new design)', onchange: e => { ws.segSide = e.target.value || null; ws.refreshInspectorSoon(); } },
+    h('option', { value: '' }, 'choose…'), h('option', { value: 'right' }, 'right'), h('option', { value: 'left' }, 'left'));
+  side.value = ws.segSide || '';
+  file.onchange = async () => { const f = file.files[0]; if (!f) return; try { const r = JSON.parse(await f.text()); await ws.importModelResult(v.id, r, f.name, ws.segSide); } catch (e) { alert('Not imported: ' + e.message); } };
   const out = h('div', {},
     h('div', { class: 'note' }, 'Model: KneeScan (mri_analysis/) — MedSAM ACL outline on one sagittal slice (2D), plus experimental bone outlines. Results are shown as 2D outlines, never as a 3D segmentation.'),
+    first ? h('div', { class: 'note' }, 'No scaffold model yet: the readings from this run (tear, ACL length and width) build the first one.') : null,
     row('Service', url), h('div', { class: 'small ' + (ws.reader && ws.reader.ok ? 'ok' : 'bad') }, ws.reader ? (ws.reader.ok ? `reachable at ${ws.reader.url}` : `not reachable: ${ws.reader.error}`) : 'checking…'),
+    first ? row('Knee side', side) : null,
+    first && guess ? h('div', { class: 'small muted' }, `from the DICOM Laterality tag: ${guess}`) : null,
     h('div', { class: 'irow' }, h('label', { class: 'small' }, bones, ' also outline femur/tibia/fibula (+1 min)'),
-      btn('Run on this series', () => ws.act('seg.run', { do_bones: bones.checked }), { class: 'primary', disabled: !(ws.reader && ws.reader.ok) || s.status === 'running', 'data-ctl': 'seg.run' })),
+      btn('Run on this series', () => ws.act('seg.run', { do_bones: bones.checked, side: ws.segSide || undefined }), { class: 'primary', disabled: !(ws.reader && ws.reader.ok) || s.status === 'running' || (first && !ws.segSide), 'data-ctl': 'seg.run' })),
     s.status ? h('div', { class: 'job' + (s.status === 'error' ? ' err' : '') }, s.message || s.status, s.status === 'running' ? h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((s.progress || 0) * 100)}%` })) : null,
       s.status === 'running' ? btn('Cancel', () => ws.cancelSeg()) : null) : null,
     h('div', { class: 'small' }, 'Or import a KneeScan results JSON (e.g. from the Colab notebook): ', file));

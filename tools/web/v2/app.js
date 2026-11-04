@@ -1207,11 +1207,11 @@ async function build(quality) {
     if (e.status === 422 && e.body && e.body.errors) {
       S.msgs = {}; e.body.errors.forEach(x => (S.msgs[x.param] = S.msgs[x.param] || []).push({ level: 'fail', text: x.message }));
       refreshMessages();
-      if (!S.scene) showErr('The design has invalid values', e.body.errors.map(x => x.param + ': ' + x.message).join('\n'), [['Reset all to imported/default', resetAll], ['Open a demo case', () => openCase('demo_complete')]]);
+      if (!S.scene) showErr('The design has invalid values', e.body.errors.map(x => x.param + ': ' + x.message).join('\n'), [['Reset all to imported/default', resetAll], ['Upload another MRI', openUpload]]);
       else $('timing').textContent = 'not rebuilt: fix the highlighted values';
       return;
     }
-    showErr('Could not build the model', String(e.message) + '\nThe previous model stays on screen if there was one.', [['Retry', () => build('full')], ['Open a demo case', () => openCase('demo_complete')]]);
+    showErr('Could not build the model', String(e.message) + '\nThe previous model stays on screen if there was one.', [['Retry', () => build('full')], ['Upload another MRI', openUpload]]);
     return;
   }
   if (seq !== S.seq) return;                       // a newer request exists: drop this stale result
@@ -2944,7 +2944,7 @@ $('btnExport').onclick = async () => {
   } catch (e) { $('timing').textContent = 'export failed: ' + e.message; }
   $('btnExport').disabled = false; $('btnExport').textContent = 'Export';
 };
-if (VIEW_MODE) { $('btnNewTab').textContent = 'Open designer'; $('btnNewTab').onclick = () => window.open('/?state=' + (S.stateId || ''), '_blank'); $('btnCases').hidden = true; document.querySelector('#tabs button[data-tab=design]').hidden = true; showTab('inspect'); }
+if (VIEW_MODE) { $('btnNewTab').textContent = 'Open workspace'; $('btnNewTab').onclick = () => window.open('/?state=' + (S.stateId || ''), '_blank'); $('btnCases').hidden = true; $('btnUpload').hidden = true; document.querySelector('#tabs button[data-tab=design]').hidden = true; showTab('inspect'); }
 
 function afterLoad() {
   S.undoStack.length = 0; S.redoStack.length = 0; S.gesture = null; refreshUndoButtons();
@@ -2972,20 +2972,55 @@ async function boot() {
       let local = null; try { local = JSON.parse(localStorage.getItem('acl.v2.current') || 'null'); } catch (x) { /* ignore */ }
       showErr('This saved model is not available', `The link refers to model "${id}", which this server does not have (${e.message}). ` +
         'It may come from another computer, or the state store was cleared.', [
-        ['Open the synthetic demo', () => { history.replaceState(null, '', location.pathname); openCase('demo_complete'); }],
-        ...(local ? [['Open my last design in this browser', () => { history.replaceState(null, '', location.pathname); S.state = local; afterLoad(); persist(); }]] : []),
+        ['Upload an MRI', openUpload],
+        ...(local ? [['Open my last design in this browser', () => { history.replaceState(null, '', location.pathname); loadState(local); }]] : []),
         ['Choose a case…', async () => { await renderCases(); $('caseDlg').showModal(); }]]);
       return;
     }
   } else {
-    let local = null; try { local = JSON.parse(localStorage.getItem('acl.v2.current') || 'null'); } catch (e) { /* ignore */ }
-    if (local && local.params) S.state = local;
-    else { const j = await api('/api/v2/new', { case: 'demo_complete' }); S.state = j.state; }
+    // No stock model: the scaffold builder waits for a design made from an uploaded MRI (KneeScan readings).
+    return waitForMri();
   }
   afterLoad(); persist();
 }
+
+// ------------------------------------------------------------------ waiting for an MRI (no preloaded model)
+const WS_MODE = !!document.getElementById('wsMain');      // the workspace page (the one page) hosts this script
+// The MRI upload is a dialog in the workspace; elsewhere (the /view pop-out) go to the workspace.
+function openUpload() { if (window.__wsUpload) window.__wsUpload(); else (window.top || window).location.href = '/'; }
+if ($('btnUpload')) $('btnUpload').onclick = openUpload;
+const NEEDS_DESIGN = ['btnExport', 'btnLink', 'btnNewTab', 'btnUndo', 'btnRedo', 'btnResetAll'];
+function fromMri(st) {
+  return !!(st && st.params && ((st.assets && st.assets.mri_readings) ||
+    Object.values(st.provenance || {}).some(pv => /KneeScan/.test((pv && pv.source) || ''))));
+}
+function waitForMri() {
+  S.state = null; S.stateId = null; S.waiting = true;
+  NEEDS_DESIGN.forEach(k => { if ($(k)) $(k).disabled = true; });
+  $('caseLabel').textContent = 'No MRI loaded'; badge('waiting for MRI', 'warn');
+  let local = null; try { local = JSON.parse(localStorage.getItem('acl.v2.current') || 'null'); } catch (e) { /* ignore */ }
+  const how = WS_MODE
+    ? 'Upload a knee MRI, or import a series in the Imaging panel and run KneeScan on it.'
+    : 'Upload a knee MRI.';
+  showErr('Waiting for an MRI',
+    'No model is shown until a scan has been analysed: KneeScan finds the ACL, checks it for a tear (MONAI ensemble) and ' +
+    'outlines and measures it (MedSAM). Its readings then go to the scaffold builder, which builds the model from them.\n\n' + how, [
+      ['Upload MRI', openUpload],
+      ...(fromMri(local) ? [['Reopen my last MRI design: ' + ((local.case && local.case.label) || 'unnamed'), () => loadState(local)]] : [])]);
+  $('ovActions').firstChild.classList.add('primary');
+}
+// Load a design (from an MRI upload or the workspace's own KneeScan run) and build it.
+function loadState(state, id) {
+  S.state = state; S.stateId = id || null; S.waiting = false; S.firstFramed = false; S.selection = null;
+  NEEDS_DESIGN.forEach(k => { if ($(k)) $(k).disabled = false; });
+  refreshUndoButtons();
+  if (id) { const url = new URL(location.href); url.searchParams.set('state', id); history.replaceState(null, '', url.pathname + url.search); }
+  progress('Building the model from the MRI readings', [(state.case && state.case.label) || '']);
+  afterLoad(); persist();
+  emit('acl:loaded', { id: S.stateId });
+}
 function setSceneBackground(hex) { if (scene) { scene.background = new THREE.Color(hex); invalidate(); } }
-window.__app = { gestureStart, applySnap, afterEdit, renderControls, DEPENDENT, derivedValue, setDisplay, setLevelMode, selectLevel, isolateLevel, focusLevel,
+window.__app = { loadState, waitForMri, openUpload, gestureStart, applySnap, afterEdit, renderControls, DEPENDENT, derivedValue, setDisplay, setLevelMode, selectLevel, isolateLevel, focusLevel,
   applyAclOverlay, applyBoneOverlay, saveView, refreshLevelView, renderObjList, setSceneBackground, invalidate, COMP_DEFS, toggleLongCut, updateClip,
   refreshUndoButtons, resetParam, provOf, renderClipControls, renderSectionControls, updateSlab, matOptsFor, setClipPlanes, renderDisplayControls, rebuildSceneObjects, applyExploded, clearMatCache, renderLegend, renderData,
   cam: () => cam, ctl: () => ctl, root: () => root, objects: () => S.objects, renderSection, requestSection, S, setParam, setCam, build, perf, openCase, openDetail, showTab, scene: () => scene, renderer: () => ren, saveRemote, showGuide, focusGuide, highlightForParam, doUndo, doRedo, waitForSettled, gestureCommit,

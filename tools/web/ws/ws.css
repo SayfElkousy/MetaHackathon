@@ -308,3 +308,34 @@ details.isec[open]>summary::before{content:'−';color:var(--accent)}
 
 @media (max-width:1280px){#wsMain{grid-template-columns:238px minmax(0,1fr) 360px}#muse{right:376px}.labrow{grid-template-columns:12px minmax(90px,1fr) 76px auto}.labrow input[type=range]{width:76px}}
 @media (max-width:980px){#wsMain{grid-template-columns:180px minmax(0,1fr) 310px}#insImg,#insScaf .tab{padding-left:12px;padding-right:12px}#insScaf .control-value{grid-template-columns:minmax(0,1fr) 96px}}
+/* ---- MRI upload dialog (tools/web/ws/upload.js): the page asks for an MRI before the scaffold builder has a design */
+#mriDlg{max-width:860px;width:94vw;max-height:92vh;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 24px 60px #0003}
+#mriDlg::backdrop{background:#1b222b66}
+#mriDlg .dlg{padding:14px 18px}
+#mriDlg .mhead{display:flex;align-items:center;justify-content:space-between}#mriDlg .mhead h3{margin:0;font-size:15px}
+#mriDlg h4{margin:12px 0 6px;font-size:12px;display:flex;gap:8px;align-items:center}
+#mriDlg .note{color:var(--muted);font-size:11.5px;margin:4px 0}
+#mriDlg code{font:11px ui-monospace,monospace;background:var(--panel2);border:1px solid var(--line2);padding:0 3px;border-radius:3px}
+#mriDlg .mgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:720px){#mriDlg .mgrid{grid-template-columns:1fr}}
+#mriDlg .mrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}#mriDlg .mrow input{flex:1;min-width:160px}
+#mriDlg .mend{justify-content:flex-end;margin-top:12px}
+#mriDlg .mchk{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;margin:6px 0}#mriDlg .mchk input{margin-top:2px}
+#mriDlg .mdrop{border:1.5px dashed var(--line);border-radius:8px;padding:14px;text-align:center;cursor:pointer;margin:2px 0 8px}
+#mriDlg .mdrop:hover,#mriDlg .mdrop.over{border-color:var(--accent);background:var(--accent-bg)}#mriDlg .mdrop b{display:block}
+#mriDlg .mbar{height:5px;background:var(--line2);border-radius:3px;overflow:hidden;margin:4px 0}#mriDlg .mbar>div{height:100%;width:0;background:var(--accent)}
+#mriDlg .msteps{list-style:none;margin:0;padding:0}#mriDlg .msteps li{display:flex;gap:8px;align-items:center;padding:2px 0}
+#mriDlg .dot{width:9px;height:9px;border-radius:50%;background:var(--line2);border:1px solid var(--line);flex-shrink:0}
+#mriDlg li.running .dot{background:var(--warn-bg);border-color:var(--warn);animation:mpulse 1s infinite}
+#mriDlg li.done .dot{background:var(--pass);border-color:var(--pass)}#mriDlg li.failed .dot{background:var(--fail);border-color:var(--fail)}
+@keyframes mpulse{50%{opacity:.35}}
+#mriDlg .merr{background:var(--fail-bg);color:var(--fail);border-radius:6px;padding:7px 10px;margin-top:6px}
+#mriDlg .mlen{background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:7px 10px;margin:6px 0;font-size:11.5px}
+#mriDlg .mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+#mriDlg .mcard{border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--panel2)}
+#mriDlg .mcard h5{margin:0 0 3px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+#mriDlg .mcard .big{font-size:17px;font-weight:650}#mriDlg .mcard .sub{font-size:11px;color:var(--muted);margin-top:2px}
+#mriDlg .torn{color:var(--fail)}#mriDlg .ok{color:var(--pass)}
+#mriDlg .mwarn{margin:6px 0 0;padding-left:18px;font-size:11.5px}
+#mriDlg .mtable{overflow-x:auto}#mriDlg table.t{width:100%;border-collapse:collapse;font-size:11.5px}
+#mriDlg table.t th,#mriDlg table.t td{border-bottom:1px solid var(--line2);padding:4px 6px;text-align:left;vertical-align:top}#mriDlg table.t th{color:var(--muted);font-weight:600}

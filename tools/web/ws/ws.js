@@ -6,6 +6,7 @@ import { renderBrowser, renderImgInspector, qcPanel, evidencePanel, coveragePane
 import { buildRegistry, toolDefs, coverage } from './registry.js';
 import { Txn } from './txn.js';
 import { Muse } from './muse.js';
+import { MriUpload } from './upload.js';
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -21,7 +22,8 @@ class Workspace {
     });
   }
   async start() {
-    while (!(window.__app && window.__app.S.reg && window.__app.S.state)) await sleep(50);
+    // start once the designer has a design, or has decided to wait for one made from an MRI (no stock model)
+    while (!(window.__app && window.__app.S.reg && (window.__app.S.state || window.__app.S.waiting))) await sleep(50);
     this.app = window.__app;
     this.app.setSceneBackground(0xe8ebee);
     // the designer's stage becomes the 'scaffold' view; its side panel becomes the scaffold inspector
@@ -36,13 +38,18 @@ class Workspace {
     this.IM.on('cross', () => this.refreshInspectorSoon()); this.IM.on('display', () => this.refreshInspectorSoon());
     window.addEventListener('acl:built', () => { this._reg = null; });
     window.addEventListener('acl:param', () => { this._reg = null; });
+    window.addEventListener('acl:loaded', () => { this._reg = null; this.refreshInspectorSoon(); this.afterRender(); });
     this.bindTop();
     await this.loadCases();
     this.restoreLayout();
     const last = (() => { try { return localStorage.getItem('ws.case'); } catch (e) { return null; } })();
     if (last && this.cases.some(c => c.id === last)) await this.openCase(last, true);
     this.refresh();
-    this.checkReader();
+    await this.checkReader();
+    // MRI upload lives in this page; with no design yet, ask for an MRI straight away
+    this.upload = new MriUpload(this);
+    window.__wsUpload = () => this.upload.open();
+    if (!this.app.S.state) this.upload.open();
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.layout.max) this.layout.restore(); if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); this.muse.toggle(true); } });
     window.__ws = this;
   }
@@ -146,7 +153,8 @@ class Workspace {
   afterRender() {
     const mpr = this.layout.visibleViews().some(v => (this.specs.get(v) || {}).kind === 'mpr');
     const banner = $('unregBanner');
-    if (banner) banner.hidden = !(mpr && this.layout.visibleViews().includes('scaffold'));
+    // only meaningful once there is a scaffold to compare with the MRI (none until an MRI has made a design)
+    if (banner) banner.hidden = !(mpr && this.layout.visibleViews().includes('scaffold') && this.app.S.state);
     this.app.invalidate();
   }
   setInspector(which) {
@@ -249,6 +257,10 @@ class Workspace {
     try { this.reader = await api('/api/img/reader' + (this.readerUrl ? '?url=' + encodeURIComponent(this.readerUrl) : '')); if (!this.readerUrl) this.readerUrl = this.reader.default_url; }
     catch (e) { this.reader = { ok: false, error: e.message }; }
     this.refreshInspectorSoon();
+    if (this.upload) this.upload.renderReader();
+    // the server starts KneeScan itself (tools/reader_launcher.py): keep checking while it loads its models
+    clearTimeout(this._readerPoll);
+    if (!this.reader.ok && (this.reader.launcher || {}).state === 'starting') this._readerPoll = setTimeout(() => this.checkReader(), 3000);
   }
   async runSegmentation(args) {
     const IM = this.IM, vid = IM.activeVol;
@@ -260,18 +272,41 @@ class Workspace {
       throw new Error(res.error ? res.error.message : 'segmentation cancelled'); }
     await IM.refresh(); await IM.selectMask(vid, res.result.mask.id);
     this.segState = { status: 'done', message: `KneeScan result stored as an editable overlay (${res.result.mask.labels.map(l => l.name).join(', ')}; 2D outline). Review it before use.` };
+    if (!this.app.S.state && res.result.kneescan) {                // no design yet: the readings build the first one
+      this.segState.message += ' ' + await this.designFromKneeScan(res.result.kneescan, args && args.side, this.volName(vid));
+    }
     this.refreshInspectorSoon();
     return { text: this.segState.message };
   }
   cancelSeg() { if (this.segJob) api('/api/img/job/cancel', { id: this.segJob }).catch(() => {}); }
-  async importModelResult(vid, result, filename) {
+  async importModelResult(vid, result, filename, side) {
     const out = await api('/api/img/segment_result', { case: this.IM.caseId, volume: vid, result, filename });
     await this.IM.refresh(); await this.IM.selectMask(vid, out.mask.id); this.toast('KneeScan result imported as an editable 2D overlay');
+    if (!this.app.S.state) this.toast(await this.designFromKneeScan(result, side, filename));
+  }
+  volName(vid) { const v = this.IM.vols && this.IM.vols.get(vid); return (v && v.name) || 'scan'; }
+  // Knee side for a new design: the choice in the segmentation panel, else the DICOM Laterality tag.
+  kneeSide(vid, side) {
+    if (side === 'right' || side === 'left') return side;
+    const v = this.IM.vols && this.IM.vols.get(vid), m = (v && v.meta) || {};
+    const lat = String(m.Laterality || m.ImageLaterality || '').toUpperCase();
+    return lat === 'R' ? 'right' : lat === 'L' ? 'left' : null;
+  }
+  // KneeScan readings -> the scaffold builder (same conversion as the /upload page), then build the model.
+  async designFromKneeScan(result, side, filename) {
+    const s = this.kneeSide(this.IM.activeVol, side);
+    if (!s) return 'No scaffold model yet: choose the knee side (KneeScan cannot tell left from right) and run it again.';
+    const out = await api('/api/mri/from_result', { result, side: s, filename });
+    this.app.loadState(out.state, out.state_id);
+    const applied = out.mapping.filter(r => r.result === 'applied').map(r => r.reading.toLowerCase());
+    return `Scaffold model built from the readings (${s} knee; applied: ${[...new Set(applied)].join(', ') || 'none'}).` +
+      (out.length_check && out.length_check.ok === false ? ' The modeler flags the ACL length: see Checks.' : '');
   }
   // ---------------------------------------------------------------- evidence -> scaffold (explicit mappings, one transaction)
   async applyEvidence(a) {
     const IM = this.IM, S = this.app.S;
     if (!IM.caseId) throw new Error('No imaging case is open.');
+    if (!S.state) throw new Error('No scaffold design yet: run KneeScan on this series (or upload an MRI) to build one first.');
     const p = await api('/api/img/propose', { case: IM.caseId, params: S.state.params, provenance: S.state.provenance, scope: a.scope || null, include_assumptions: !!a.include_assumptions });
     const keep = a.keep || [], kept = k => keep.some(x => x.endsWith('*') ? k.startsWith(x.slice(0, -1)) : k === x);
     const changes = [], assumptions = [];

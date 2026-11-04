@@ -1,6 +1,6 @@
 """MRI reader -> ACL modeler bridge. Transfer only: it changes neither side.
 
-    upload page (/upload)
+    upload dialog in the workspace (/, tools/web/ws/upload.js)
       -> KneeScan app (mri_analysis/app.py), through its own Gradio API "/analyze"
       <- KneeScan results JSON (tear status and level, ACL location, ACL length and width, femur-fibula distance)
       -> to_acl_mri_input(): the modeler's documented input format, acl-mri-input 1.0 (docs/PATIENT_INPUT.md)
@@ -72,12 +72,28 @@ def reader_info(url=None, timeout=6):
         with _http(urllib.request.Request(url + "/gradio_api/info"), timeout) as r:
             info = json.loads(r.read().decode("utf-8"))
     except (ReaderError, ValueError) as e:
-        return {"ok": False, "url": url, "error": str(e)}
+        return _with_launcher({"ok": False, "url": url, "error": str(e)})
     eps = sorted((info.get("named_endpoints") or {}).keys())
     if "/" + API_NAME not in eps:
         return {"ok": False, "url": url, "endpoints": eps,
                 "error": "a Gradio app is running there, but it has no /%s endpoint (is it KneeScan's mri_analysis/app.py?)" % API_NAME}
-    return {"ok": True, "url": url, "endpoints": eps}
+    return _with_launcher({"ok": True, "url": url, "endpoints": eps})
+
+
+def _with_launcher(info):
+    """For the local address, add what the server's own KneeScan launcher is doing (tools/reader_launcher.py), so the
+    page can say 'starting' or 'not set up' instead of just 'not reachable'."""
+    try:
+        import reader_launcher as RL
+    except ImportError:
+        return info
+    if (info.get("url") or "").rstrip("/") not in (RL.LOCAL_URL, "http://localhost:%d" % RL.PORT):
+        return info
+    st = RL.status(answering=info.get("ok"))
+    info["launcher"] = st
+    if not info.get("ok") and st["state"] in ("starting", "not_installed", "exited"):
+        info["error"] = st["message"]
+    return info
 
 
 def _upload(url, path, filename):
@@ -407,6 +423,21 @@ def build_state(r, laterality, filename, run_id=None):
     return state, rows, doc, notes
 
 
+def design_from_result(r, laterality, filename, run_id=None):
+    """KneeScan results -> saved design state. Used by the upload job and by the imaging workspace, which runs
+    KneeScan itself. Returns the summary the pages show (state id, readings, what was sent, length preview)."""
+    import server_v2 as V2
+    if laterality not in ("right", "left"):
+        raise ValueError("choose the knee side (right or left): KneeScan cannot tell them apart")
+    if not isinstance(r, dict) or "tear" not in r:
+        raise ValueError("this is not a KneeScan results file (no tear reading)")
+    state, rows, doc, notes = build_state(r, laterality, filename, run_id)
+    lc = length_check(state)
+    return {"state_id": V2.save_state(state), "state": state, "readings": readings(r), "mapping": rows, "length_check": lc,
+            "notes": notes, "warnings": r.get("warnings") or [], "seconds": r.get("seconds"), "input": r.get("input"),
+            "document": doc}
+
+
 # --------------------------------------------------------------------------- upload jobs
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -451,16 +482,12 @@ def _run_job(job, scan_path):
         finally:
             shutil.rmtree(os.path.dirname(scan_path), ignore_errors=True)
         _set_step(job, "convert", "converting the readings into modeler parameters")
-        state, rows, doc, notes = build_state(r, job["side"], job["filename"], job["id"])
-        lc = length_check(state)
+        out = design_from_result(r, job["side"], job["filename"], job["id"])
+        out.pop("state")                          # saved under state_id; the page loads it from there
         _set_step(job, "save", "saving the design")
-        import server_v2 as V2
-        sid = V2.save_state(state)
         for s in job["steps"]:
             s["state"] = "done"
-        job["result"] = {"state_id": sid, "readings": readings(r), "mapping": rows, "length_check": lc, "notes": notes,
-                         "warnings": r.get("warnings") or [], "seconds": r.get("seconds"), "input": r.get("input"),
-                         "document": doc, "kneescan": r}
+        job["result"] = dict(out, kneescan=r)
         job["status"], job["message"] = "done", "done"
     except (ReaderError, ValueError) as e:
         job["status"], job["error"] = "error", str(e)

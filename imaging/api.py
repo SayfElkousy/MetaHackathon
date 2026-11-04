@@ -266,7 +266,9 @@ def start_segmentation(body):
         step(0.1, "sending the scan to KneeScan")
         res = MB.analyze_scan(path, fname, do_bones=do_bones, url=url, on_step=lambda k, msg: step(0.5, msg))
         step(0.9, "mapping the model output into the volume")
-        return _store_model_result(m["id"], v, res, {"service": url, "do_bones": do_bones, "api": "Gradio /analyze"})
+        out = _store_model_result(m["id"], v, res, {"service": url, "do_bones": do_bones, "api": "Gradio /analyze"})
+        out["kneescan"] = res                    # the readings, so the workspace can build the first scaffold design from them
+        return out
     return ST.start_job("segment", work, case=m["id"], volume=v["id"])
 
 

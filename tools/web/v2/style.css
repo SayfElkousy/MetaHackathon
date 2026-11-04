@@ -25,7 +25,8 @@ body.viewmode #main{grid-template-columns:minmax(0,1fr) 360px}
 #viewbar .lbl{color:#9fb2b2;font-size:12px}
 .overlay{position:absolute;inset:0 0 44px 0;display:flex;align-items:center;justify-content:center;background:rgba(20,27,28,.72);color:#eef;z-index:5}
 .overlay[hidden]{display:none}
-.ovbox{background:#1d2628;border:1px solid #3b4a4c;border-radius:8px;padding:16px 20px;min-width:300px;max-width:520px}
+.ovbox{background:#1d2628;border:1px solid #3b4a4c;border-radius:8px;padding:16px 20px;min-width:min(300px,calc(100% - 16px));max-width:min(520px,calc(100% - 16px));max-height:calc(100% - 16px);overflow:auto}
+#ovSteps{overflow-wrap:anywhere}
 #ovTitle{font-weight:600;margin-bottom:6px}#ovSteps{font-size:12px;white-space:pre-wrap;color:#b9c8c8}
 #ovActions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}#ovActions button{background:#2b3638;color:#fff;border-color:#4a5b5d}
 #hud{position:absolute;inset:0 0 44px 0;pointer-events:none;z-index:2}

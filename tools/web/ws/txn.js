@@ -79,6 +79,10 @@ export class Txn {
       timings: { model_ms: tx.model_ms ?? null }, status: 'pending', revision: this.revision };
     if (this.seen.has(tx.id)) return Object.assign(card, { status: 'duplicate', errors: ['This request was already applied.'] });
     this.seen.add(tx.id);
+    if (!S.state && (tx.changes || []).length) {                  // nothing to change until an MRI has made a design
+      card.status = 'rejected'; card.errors.push('No scaffold design yet: upload an MRI, or run KneeScan on a series, to build one first.');
+      this.push(card); return card;
+    }
     const keep = (tx.keep || []).filter(Boolean);
     const kept = k => keep.some(p => k === p || (p.endsWith('*') ? k.startsWith(p.slice(0, -1)) : k.startsWith(p + '.')));
     const staged = [];

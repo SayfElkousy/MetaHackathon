@@ -129,13 +129,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        # v2 designer at "/", separate viewer at "/view", previous N3 page at "/classic"
-        if u.path in ("/", "/view", "/index.html"):
-            return self._serve_file(os.path.join(WEB, "v2", "index.html"), "text/html")
-        if u.path == "/upload":
-            return self._serve_file(os.path.join(WEB, "v2", "upload.html"), "text/html")
-        if u.path == "/workspace":
+        # One page: the workspace at "/" asks for an MRI (upload dialog), holds the scaffold builder and the imaging
+        # workspace. "/view" is its pop-out / second scaffold view. Old page addresses lead to "/" (a ?state= link is kept).
+        if u.path in ("/", "/index.html"):
             return self._serve_file(os.path.join(WEB, "ws", "index.html"), "text/html")
+        if u.path == "/view":
+            return self._serve_file(os.path.join(WEB, "v2", "index.html"), "text/html")
+        if u.path in ("/workspace", "/upload", "/classic"):
+            return self._redirect("/" + ("?" + u.query if u.query and u.path == "/workspace" else ""))
         if u.path.startswith("/ws/"):
             rel = u.path[len("/ws/"):]
             if "/" in rel or "\\" in rel or rel.startswith(".") or not re.match(r"^[A-Za-z0-9_.-]+$", rel):
@@ -152,8 +153,6 @@ class H(BaseHTTPRequestHandler):
             return _send_json(self, 200, muse_api.status())
         if u.path.startswith("/api/mri/"):
             return self._mri_get(u)
-        if u.path == "/classic":
-            return self._serve_file(os.path.join(WEB, "index.html"), "text/html")
         if u.path.startswith("/v2/"):
             rel = u.path[len("/v2/"):]
             if "/" in rel or "\\" in rel or rel.startswith(".") or not re.match(r"^[A-Za-z0-9_.-]+$", rel):
@@ -211,6 +210,12 @@ class H(BaseHTTPRequestHandler):
                 return _send_json(self, 200, json.load(f))
         return _send_json(self, 404, {"error": "not found", "field": "path", "hint": "GET / /web/* /api/*"})
 
+    def _redirect(self, where):
+        self.send_response(302)
+        self.send_header("Location", where)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def _serve_file(self, path, ctype):
         if not os.path.isfile(path):
             return _send_json(self, 404, {"error": "not found", "field": "path", "hint": os.path.basename(path)})
@@ -254,6 +259,16 @@ class H(BaseHTTPRequestHandler):
             return _send_json(self, 400, {"error": str(e)})
         jid = MB.start_job(path, os.path.basename(path), side, q.get("bones", ["1"])[0] != "0", reader)
         return _send_json(self, 200, {"job": jid})
+
+    def _mri_from_result(self, body):
+        """POST /api/mri/from_result {result, side, filename}: a KneeScan result the caller already has (the imaging
+        workspace runs KneeScan itself) -> saved design state for the scaffold builder."""
+        import mri_bridge as MB
+        try:
+            out = MB.design_from_result(body.get("result"), body.get("side"), str(body.get("filename") or "scan"))
+        except ValueError as e:
+            return _send_json(self, 422, {"error": str(e)})
+        return _send_json(self, 200, out)
 
     # ---- volumetric imaging workspace (imaging/api.py)
     def _send_raw(self, b, headers):
@@ -312,6 +327,8 @@ class H(BaseHTTPRequestHandler):
             return _send_json(self, 400, {"error": err, "field": "body", "hint": "send JSON"})
         if u.path.startswith("/api/v2/"):
             return self._v2(u.path, body)
+        if u.path == "/api/mri/from_result":
+            return self._mri_from_result(body)
         if u.path.startswith("/api/img/"):
             from imaging import api as IA
             return self._img_reply(lambda: IA.post(u.path, body))
@@ -511,7 +528,7 @@ def run(port=8000, open_browser=True):
             continue
     if srv is None:
         raise OSError("ports %d-%d busy" % (port, port + 10))
-    print("ACL designer: http://127.0.0.1:%d/  (workspace: /workspace, viewer: /view, previous page: /classic). Press Ctrl+C to stop." % used)
+    print("MRI to scaffold workspace: http://127.0.0.1:%d/  (upload an MRI there; /view is the pop-out scaffold view). Press Ctrl+C to stop." % used)
 
     def _warm():
         try:
@@ -522,6 +539,15 @@ def run(port=8000, open_browser=True):
         except Exception:
             traceback.print_exc()
     threading.Thread(target=_warm, daemon=True).start()
+
+    def _reader():
+        # the KneeScan MRI reader runs next to this server, so the page finds it without an address (tools/reader_launcher.py)
+        try:
+            import reader_launcher as RL
+            print("MRI reader: " + RL.autostart()["message"], flush=True)
+        except Exception:
+            traceback.print_exc()
+    threading.Thread(target=_reader, daemon=True).start()
     if open_browser:
         try:
             webbrowser.open("http://127.0.0.1:%d/" % used)
@@ -531,6 +557,12 @@ def run(port=8000, open_browser=True):
         srv.serve_forever()
     except KeyboardInterrupt:
         print("stopped")
+    finally:
+        try:
+            import reader_launcher as RL
+            RL.stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

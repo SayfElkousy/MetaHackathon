@@ -134,7 +134,8 @@ export function buildRegistry(ctx) {
       IM.overlay.visible = true; IM.overlay.labels.set(l.name, Object.assign({ opacity: 1 }, IM.overlay.labels.get(l.name), { visible: true })); IM.emit('overlay'); return `showing ${l.name}`; } });
   act({ name: 'img.show_original', description: 'Show the original MRI without overlays or annotations (windowing unchanged)',
     run: () => { IM.overlay.visible = false; IM.annotationsVisible = false; IM.emit('overlay'); IM.emit('annotations'); return 'overlays and annotations hidden'; } });
-  act({ name: 'seg.run', description: 'Run the configured segmentation service (KneeScan) on the active volume', params: { do_bones: { type: 'boolean' } },
+  act({ name: 'seg.run', description: 'Run the configured segmentation service (KneeScan) on the active volume. With no scaffold design yet, its readings build the first one (needs the knee side).',
+    params: { do_bones: { type: 'boolean' }, side: { type: 'string', enum: ['right', 'left'] } },
     run: async a => ws.runSegmentation(a) });
   // ---------------------------------------------------------------- workspace
   act({ name: 'ws.preset', description: 'Apply a workspace layout', params: { name: { type: 'string', enum: ['mpr_scaffold', 'mpr', 'scaffold', 'review'] } }, required: ['name'],

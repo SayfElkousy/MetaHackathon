@@ -2,22 +2,24 @@
 
 **3A (scaffold fit):** the scaffold is generated inside a millimetre repair space (target envelope ∩ affected AM/PL region ∩ damaged interval + permitted overlap, with strand radius and clearances), verified in 3D, highlighted where it fails, and sectioned from the same geometry along the ACL, either bundle, or axial/sagittal/coronal planes. See `docs/V2_REPORT.md` §7.
 
-`python tools/server.py` then open http://127.0.0.1:8000/ (designer) or `/view?state=<id>` (separate viewer); the previous page is at `/classic`.
+`python tools/server.py` then open http://127.0.0.1:8000/. That is the one page: it asks for an MRI, holds the scaffold builder and is the imaging workspace. `/view?state=<id>` is its pop-out scaffold view; the old addresses `/workspace`, `/upload` and `/classic` lead to `/`.
 
 - Anatomical scene: procedural distal femur / proximal tibia with cartilage (or imported patient meshes), footprints on bone, retained ligament tissue, injury region, intact reference, and a scaffold placed by the injury.
 - Adjustable hierarchy (bundles → fascicle groups → representative fibers), separate twist channels, multiphasic regions.
 - **Scaffold Levels** (default construct): six editable levels — 1 surface coating/nano-texture, 2 grooves, 3 hollow channels, 4 braided AM-like/PL-like mantles, 5 ribbon sheath, 6 flared graded ends — with highlight/isolate/neighbour views, a level cross-section, true-scale magnified details, and conflicts with tested fixes. Knee pose, tear and reference anatomy are in the separate **Anatomy and Pose** panel. See `docs/V2_REPORT.md` §9; engine `acl_engine/v2/layered.py`. The earlier gap-filling braided/aligned scaffold remains available as a construct type.
-- **Imaging workspace** (`/workspace`): gray/white V7-inspired tabbed workspace with MPR (axial/sagittal/coronal, linked crosshairs, windowing, colour maps), segmentation overlays and editing, quality control, landmark/distance measurements, traceable evidence → scaffold mappings, and the Muse controller (every control registered, one undoable transaction per request). What works, what needs model access, what is not implemented: `docs/IMAGING_WORKSPACE.md`.
+- **Imaging workspace** (the page itself): gray/white V7-inspired tabbed workspace with MPR (axial/sagittal/coronal, linked crosshairs, windowing, colour maps), segmentation overlays and editing, quality control, landmark/distance measurements, traceable evidence → scaffold mappings, and the Muse controller (every control registered, one undoable transaction per request). What works, what needs model access, what is not implemented: `docs/IMAGING_WORKSPACE.md`.
 - **Muse Spark setup:** copy `.env.muse.example` to `.env.muse`, add a Meta Model API `MODEL_API_KEY`, and restart the server. The app defaults to `muse-spark-1.3` at `https://api.meta.ai/v1`; `.env.muse` is gitignored.
 - Patient-specific input from an MRI-analysis model: `docs/PATIENT_INPUT.md`; synthetic fixtures in `fixtures/patients/`.
-- **MRI upload** (`/upload`, or **Upload MRI** in the designer header): send a scan to the KneeScan MRI reader (`mri_analysis/`) and build the model from its readings. See "MRI upload" below.
+- **MRI upload** (opens on its own when no design is loaded, or **Upload MRI** in the header): send a scan to the KneeScan MRI reader (`mri_analysis/`) and build the scaffold model from its readings. See "MRI upload" below.
 
-## MRI upload: scan → KneeScan → designer
+## MRI upload: scan → KneeScan → scaffold builder
 
-1. Start the MRI reader (its own environment: `pip install -r mri_analysis/requirements.txt`, weights via `mri_analysis/fetch_weights.py`):
-   `cd mri_analysis` then `python app.py` (http://127.0.0.1:7860). Or run `mri_analysis/KneeScan_Colab.ipynb` and paste its `gradio.live` link on the upload page. Set `KNEESCAN_URL` to change the default address.
-2. `python tools/server.py`, open http://127.0.0.1:8000/upload, choose the scan and the knee side, press **Analyze and send to the modeler**.
-3. Review the readings and what was sent, then **Build the ACL model in the designer**.
+1. Once per computer: `python tools/setup_kneescan.py`. It creates KneeScan's own Python environment, installs `mri_analysis/requirements.txt` (PyTorch CPU, MONAI, transformers, Gradio; about 1 GB) and downloads the model weights (about 470 MB) from the private Hugging Face repo `tariksyed/kneescan`, asking for a read token. Everything goes to `%LOCALAPPDATA%\KneeScan` (`~/.kneescan` on macOS/Linux; set `KNEESCAN_HOME` to change it), outside the project folder, which may be synced. Re-running skips finished steps.
+2. `python tools/server.py`, open http://127.0.0.1:8000/. The server starts KneeScan in the background (`tools/reader_launcher.py`, the way the Colab notebook runs it) and stops it on exit; the upload window shows **starting…** while the models load (about a minute on a CPU), then **connected**. Nothing to paste. To use another reader instead (e.g. the Colab notebook's `gradio.live` link), paste its address in the upload window or set `KNEESCAN_URL`; `KNEESCAN_AUTOSTART=0` turns the automatic start off. KneeScan's output goes to `kneescan.log` in the KneeScan folder.
+3. With no design loaded the page asks for an MRI: choose the scan and the knee side, press **Analyze and send to the scaffold builder**.
+4. Review the readings and what was sent, then **Build the scaffold model**: the design loads in the same page.
+
+There is no preloaded sample model: the scaffold view shows **Waiting for an MRI** until a design made from KneeScan readings exists. It comes from the upload dialog, or from **AI segmentation → Run on this series** (or importing a KneeScan results JSON) when no design is loaded yet; the panel then asks for the knee side (preset from the DICOM Laterality tag when present). A design opened by link (`?state=<id>`) loads as before, and the synthetic demo cases stay available under **Open / import**.
 
 `tools/mri_bridge.py` does the transfer only; neither the reader nor the modeler changed. It calls the reader's own Gradio API (`/analyze`, the same call its web page makes), converts the results to `acl-mri-input` and runs the modeler's importer (`acl_engine/v2/patient.py`):
 
