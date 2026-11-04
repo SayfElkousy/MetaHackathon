@@ -116,7 +116,7 @@ class H(BaseHTTPRequestHandler):
 
     def _read_json(self):
         n = int(self.headers.get("Content-Length", "0") or "0")
-        if n > (MAX_BODY_V2 if self.path.startswith("/api/v2/") else MAX_BODY):
+        if n > (MAX_BODY_V2 if self.path.startswith(("/api/v2/", "/api/img/", "/api/muse/")) else MAX_BODY):
             return None, "too_large"
         raw = self.rfile.read(n) if n > 0 else b"{}"
         try:
@@ -134,6 +134,22 @@ class H(BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(WEB, "v2", "index.html"), "text/html")
         if u.path == "/upload":
             return self._serve_file(os.path.join(WEB, "v2", "upload.html"), "text/html")
+        if u.path == "/workspace":
+            return self._serve_file(os.path.join(WEB, "ws", "index.html"), "text/html")
+        if u.path.startswith("/ws/"):
+            rel = u.path[len("/ws/"):]
+            if "/" in rel or "\\" in rel or rel.startswith(".") or not re.match(r"^[A-Za-z0-9_.-]+$", rel):
+                return _send_json(self, 400, {"error": "bad path"})
+            ext = os.path.splitext(rel)[1]
+            if ext not in (".html", ".js", ".css", ".json"):
+                return _send_json(self, 403, {"error": "blocked"})
+            ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json"}[ext]
+            return self._serve_file(os.path.join(WEB, "ws", rel), ctype)
+        if u.path.startswith("/api/img/"):
+            return self._img_get(u)
+        if u.path == "/api/muse/status":
+            import muse_api
+            return _send_json(self, 200, muse_api.status())
         if u.path.startswith("/api/mri/"):
             return self._mri_get(u)
         if u.path == "/classic":
@@ -239,10 +255,56 @@ class H(BaseHTTPRequestHandler):
         jid = MB.start_job(path, os.path.basename(path), side, q.get("bones", ["1"])[0] != "0", reader)
         return _send_json(self, 200, {"job": jid})
 
+    # ---- volumetric imaging workspace (imaging/api.py)
+    def _send_raw(self, b, headers):
+        try:
+            inm = self.headers.get("If-None-Match")
+            if inm and headers.get("ETag") == inm:
+                self.send_response(304)
+                self.send_header("ETag", headers["ETag"])
+                self.end_headers()
+                return
+            self.send_response(200)
+            for k, v in headers.items():
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _img_reply(self, fn):
+        from imaging import volumes as IV
+        try:
+            out = fn()
+        except KeyError as e:
+            return _send_json(self, 404, {"error": "not found: %s" % e})
+        except IV.ImportFailed as e:
+            return _send_json(self, 422, {"error": str(e), "checks": e.checks})
+        except (ValueError, RuntimeError) as e:
+            return _send_json(self, 400, {"error": str(e)})
+        except Exception as e:
+            traceback.print_exc()
+            return _send_json(self, 500, {"error": "server error: %s" % e})
+        if out[0] == "raw":
+            return self._send_raw(out[1], out[2])
+        return _send_json(self, out[0], out[1])
+
+    def _img_get(self, u):
+        from imaging import api as IA
+        return self._img_reply(lambda: IA.get(u.path, parse_qs(u.query)))
+
     def do_POST(self):
         u = urlparse(self.path)
         if u.path == "/api/mri/upload":
             return self._mri_upload(u)
+        if u.path in ("/api/img/upload", "/api/img/mask_save"):
+            from imaging import api as IA
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            q = parse_qs(u.query)
+            if u.path == "/api/img/upload":
+                return self._img_reply(lambda: IA.upload(q, self.rfile, n))
+            return self._img_reply(lambda: IA.save_mask(q, self.rfile, n, self.headers))
         body, err = self._read_json()
         if err == "too_large":
             return _send_json(self, 413, {"error": "body over 2MB", "field": "body", "hint": "send a smaller request"})
@@ -250,6 +312,13 @@ class H(BaseHTTPRequestHandler):
             return _send_json(self, 400, {"error": err, "field": "body", "hint": "send JSON"})
         if u.path.startswith("/api/v2/"):
             return self._v2(u.path, body)
+        if u.path.startswith("/api/img/"):
+            from imaging import api as IA
+            return self._img_reply(lambda: IA.post(u.path, body))
+        if u.path == "/api/muse/plan":
+            import muse_api
+            code, out = muse_api.plan(body)
+            return _send_json(self, code, out)
         if u.path == "/api/build":
             return self._build(body)
         if u.path == "/api/save":
@@ -442,7 +511,7 @@ def run(port=8000, open_browser=True):
             continue
     if srv is None:
         raise OSError("ports %d-%d busy" % (port, port + 10))
-    print("ACL designer: http://127.0.0.1:%d/  (viewer: /view, previous page: /classic). Press Ctrl+C to stop." % used)
+    print("ACL designer: http://127.0.0.1:%d/  (workspace: /workspace, viewer: /view, previous page: /classic). Press Ctrl+C to stop." % used)
 
     def _warm():
         try:
@@ -465,4 +534,4 @@ def run(port=8000, open_browser=True):
 
 
 if __name__ == "__main__":
-    run(int(sys.argv[1]) if len(sys.argv) > 1 else 8000)
+    run(int(sys.argv[1]) if len(sys.argv) > 1 else 8000, open_browser=not os.environ.get("NO_BROWSER"))
