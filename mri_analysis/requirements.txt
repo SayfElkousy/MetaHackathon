@@ -1,0 +1,14 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0
+transformers==5.22.1
+safetensors==0.8.0
+monai==1.6.1
+SimpleITK==2.5.7
+scikit-image==0.26.0
+scipy==1.18.1
+numpy==2.5.3
+pydicom==3.0.2
+nibabel==5.4.2
+matplotlib==3.11.2
+pillow==11.3.0
+gradio==5.50.0

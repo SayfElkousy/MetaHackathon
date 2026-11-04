@@ -1,0 +1,61 @@
+{
+ "monai": {
+  "auc": 0.904,
+  "ci": [
+   0.877,
+   0.929
+  ],
+  "threshold": 0.5493487119674683,
+  "sensitivity": 0.806,
+  "specificity": 0.886,
+  "detected_partial": 0.756,
+  "detected_complete": 0.964,
+  "auc_complete_vs_healthy": 0.982
+ },
+ "dinov2": {
+  "auc": 0.752,
+  "ci": [
+   0.714,
+   0.79
+  ],
+  "threshold": 0.5268729329109192,
+  "sensitivity": 0.608,
+  "specificity": 0.79,
+  "detected_partial": 0.541,
+  "detected_complete": 0.818,
+  "auc_complete_vs_healthy": 0.88
+ },
+ "biomedclip": {
+  "auc": 0.768,
+  "ci": [
+   0.73,
+   0.802
+  ],
+  "threshold": 0.52836674451828,
+  "sensitivity": 0.648,
+  "specificity": 0.794,
+  "detected_partial": 0.593,
+  "detected_complete": 0.818,
+  "auc_complete_vs_healthy": 0.87
+ },
+ "ensemble": {
+  "auc": 0.861,
+  "ci": [
+   0.83,
+   0.889
+  ],
+  "threshold": 0.678117048346056,
+  "sensitivity": 0.692,
+  "specificity": 0.887,
+  "detected_partial": 0.622,
+  "detected_complete": 0.909,
+  "auc_complete_vs_healthy": 0.962
+ },
+ "_n": {
+  "volumes": 917,
+  "torn": 227,
+  "partial": 172,
+  "complete": 55,
+  "exams": 909
+ }
+}

@@ -1,0 +1,48 @@
+{
+ "tear": {
+  "threshold": 0.5082,
+  "source": "Youden threshold on out-of-fold predictions of the full automatic pipeline, KneeMRI (917 scans)"
+ },
+ "validation": {
+  "tear": {
+   "dataset": "KneeMRI (Rijeka), 917 PD fat-suppressed sagittal scans, 227 torn; 5-fold CV grouped by patient; full automatic pipeline (localizer slice + box, knee side unknown)",
+   "auc": 0.854,
+   "auc_95ci": [
+    0.821,
+    0.884
+   ],
+   "sensitivity": 0.793,
+   "specificity": 0.784,
+   "partial_tears_detected": 0.744,
+   "complete_tears_detected": 0.945,
+   "auc_complete_vs_healthy": 0.941,
+   "auc_with_hand_drawn_acl_box_and_known_knee_side": 0.904
+  },
+  "level": {
+   "partial_vs_complete_auc": 0.644,
+   "complete_rupture_caught": 0.473,
+   "partial_labelled_partial": 0.756,
+   "note": "55 complete and 172 partial tears; a dedicated 3-class MONAI model scored 0.61 (hand-drawn box), so it is not used"
+  },
+  "location": {
+   "slice_inside_hand_marked_acl_slices": 0.904,
+   "slice_within_one_of_them": 0.995,
+   "box_overlap_iou_median": 0.841,
+   "note": "the localizer was probably trained on these same KneeMRI boxes, so its box overlap here is optimistic"
+  },
+  "acl_size": {
+   "dataset": "CEMRR kneeMRI-ACL, 110 expert-outlined slices, 5-fold CV (model without contrast augmentation)",
+   "dice": 0.815,
+   "length_error_median_pct": 5.3,
+   "width_error_median_pct": 14.5,
+   "note": "deployed decoder adds contrast / low-resolution augmentation; it gave more ligament-shaped outlines on fat-suppressed scans but was not re-cross-validated"
+  },
+  "femur_fibula": {
+   "note": "no public ground truth; experimental"
+  }
+ },
+ "level": {
+  "threshold": 0.9059,
+  "source": "Youden threshold for complete vs partial among torn scans, same predictions"
+ }
+}

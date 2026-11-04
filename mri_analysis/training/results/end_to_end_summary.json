@@ -1,0 +1,9 @@
+{
+ "n": 917,
+ "failed": 0,
+ "slice_in_hand_roi": 0.904,
+ "slice_within_1": 0.995,
+ "box_iou_median": 0.841,
+ "box_iou_ge_0_5": 0.999,
+ "tear_auc_end_to_end": 0.854
+}

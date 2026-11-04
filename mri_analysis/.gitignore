@@ -1,0 +1,6 @@
+# Model weights and example scans are downloaded by fetch_weights.py (too large for git, and some come from
+# datasets whose terms don't allow redistribution). Only the calibration file is versioned.
+weights/*
+!weights/calibration.json
+examples/
+__pycache__/
