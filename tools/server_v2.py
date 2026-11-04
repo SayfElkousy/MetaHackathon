@@ -237,14 +237,44 @@ def detail_request(body):
 
 def export_request(body):
     from acl_engine.v2.scene import build_scene
-    from acl_engine.v2.export import export_zip
+    from acl_engine.v2.stl_export import build_export
     st = body.get("state")
+    if not isinstance(st, dict) or "params" not in st:
+        return 400, {"error": "missing state"}, None
+    # JSON round-trip creates an immutable request snapshot even if the browser
+    # continues editing while the threaded export is running.
+    st = json.loads(json.dumps(st))
     with LOCK:
         sc = build_scene(st, "full")
     if not sc.get("ok"):
         return 422, {"error": "invalid parameters", "errors": sc["errors"]}, None
-    data, man = export_zip(st, sc)
+    try:
+        man, data = build_export(st, sc, body.get("options") or {})
+    except NotImplementedError as e:
+        return 422, {"error": str(e), "category": "unsupported_fused_solid"}, None
+    except ValueError as e:
+        return 422, {"error": str(e), "category": "invalid_export_selection"}, None
     return 200, man, data
+
+
+def export_inspect_request(body):
+    from acl_engine.v2.scene import build_scene
+    from acl_engine.v2.stl_export import build_export
+    st = body.get("state")
+    if not isinstance(st, dict) or "params" not in st:
+        return 400, {"error": "missing state"}
+    st = json.loads(json.dumps(st))
+    with LOCK:
+        sc = build_scene(st, "full")
+    if not sc.get("ok"):
+        return 422, {"error": "invalid parameters", "errors": sc["errors"]}
+    try:
+        out, _ = build_export(st, sc, body.get("options") or {}, preview=True)
+    except NotImplementedError as e:
+        return 422, {"error": str(e), "category": "unsupported_fused_solid"}
+    except ValueError as e:
+        return 422, {"error": str(e), "category": "invalid_export_selection"}
+    return 200, out
 
 
 def level_detail_request(body):

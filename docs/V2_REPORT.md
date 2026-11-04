@@ -1,4 +1,7 @@
-# ACL repair designer v2: what changed and how it was verified
+# Bundlr v2: historical implementation and verification report
+
+> This report records the earlier v2 engine milestone. For the current integrated imaging workspace, Muse Spark
+> controller, capability limits, and verification status, see `IMAGING_WORKSPACE.md` and `DEMO_RUNBOOK.md`.
 
 Run: `python tools/server.py` → designer at http://127.0.0.1:8000/ , separate viewer at `/view?state=<id>`, previous page at `/classic`.
 Engine: `acl_engine/v2/`. Tests: `pytest` (68 tests). Patient input: `docs/PATIENT_INPUT.md`.

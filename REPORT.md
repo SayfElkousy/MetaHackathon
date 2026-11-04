@@ -19,7 +19,7 @@ fixes, all 13 tests pass and both designs build in about 3 seconds each.**
 | Milestone | What it does | Status |
 |---|---|---|
 | M1 | Design file checking, braid paths, 3D tubes, STL file | Worked after 4 fixes |
-| N1 | Fold depth/sharpness, fiber-length control, curved axis, gap and curvature checks | **Code never shared.** Rebuilt to match what N2 expects |
+| N1 | Fold depth/sharpness, fiber-length control, curved axis, gap and curvature checks | **Code never shared.** Rebuilt by Claude to match what N2 expects |
 | N2 | Schematic knee, native ACL ghost (angled per published MRI data), scaffold placement, tunnels, fit checks, 3D scene file | Worked after 10 fixes |
 
 ## The problems, in plain language
@@ -119,7 +119,7 @@ from real MRI. This is the kind of tradeoff the tool is meant to show.
 
 1. Attach the zip of this folder (the fixed code).
 2. Paste the summary from `python check.py`.
-3. Say: "This is the current working code with fixes marked `FIX`.
+3. Say: "This is the current working code with fixes marked `FIX (Claude)`.
    Build on these files. Do not rewrite cli.py's STL writer or any function that
    already passes tests. N1 files here were rebuilt to match your N2 interfaces;
    use them as-is. Next: N3 (local server + slider page). Reuse cli.py's
@@ -129,7 +129,7 @@ from real MRI. This is the kind of tradeoff the tool is meant to show.
 
 # T1 (Consolidate), applied 30 October 2026
 
-Applied on top of the fixed code. **19 tests pass; all 4 example designs
+Applied by Claude on top of the fixed code. **19 tests pass; all 4 example designs
 build** (results unchanged from before T1).
 
 **Added from Muse's T1:** `records.py` (parameter records), `export.py` (one shared
@@ -189,7 +189,7 @@ The page needs internet once to load three.js.
 
 ---
 
-# Speed-up, 30 October 2026
+# Speed-up, 30 October 2026 (Claude)
 
 Rebuilds are faster with **identical results** (every number and the STL bytes compared
 against the previous version):

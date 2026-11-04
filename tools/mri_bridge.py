@@ -1,6 +1,6 @@
 """MRI reader -> ACL modeler bridge. Transfer only: it changes neither side.
 
-    upload dialog in the workspace (/, tools/web/ws/upload.js)
+    upload page (/upload)
       -> KneeScan app (mri_analysis/app.py), through its own Gradio API "/analyze"
       <- KneeScan results JSON (tear status and level, ACL location, ACL length and width, femur-fibula distance)
       -> to_acl_mri_input(): the modeler's documented input format, acl-mri-input 1.0 (docs/PATIENT_INPUT.md)
@@ -81,18 +81,17 @@ def reader_info(url=None, timeout=6):
 
 
 def _with_launcher(info):
-    """For the local address, add what the server's own KneeScan launcher is doing (tools/reader_launcher.py), so the
-    page can say 'starting' or 'not set up' instead of just 'not reachable'."""
+    """Add local KneeScan launcher state to reader diagnostics when available."""
     try:
         import reader_launcher as RL
     except ImportError:
         return info
     if (info.get("url") or "").rstrip("/") not in (RL.LOCAL_URL, "http://localhost:%d" % RL.PORT):
         return info
-    st = RL.status(answering=info.get("ok"))
-    info["launcher"] = st
-    if not info.get("ok") and st["state"] in ("starting", "not_installed", "exited"):
-        info["error"] = st["message"]
+    status = RL.status(answering=info.get("ok"))
+    info["launcher"] = status
+    if not info.get("ok") and status["state"] in ("starting", "not_installed", "exited"):
+        info["error"] = status["message"]
     return info
 
 
@@ -355,27 +354,25 @@ def apply_readings(state, r, run_id=None):
         rows.append({"reading": "ACL length", "value": L, "units": "mm", "param": "lig.length_target_mm (lig.length_mode = target)",
                      "result": "applied", "sent": round(L, 2)})
     else:
-        why = ("no millimetre value" if L is None else "%.1f mm is outside the modeler's %g-%g mm range" % (L, spec["min"], spec["max"]))
-        rep["warnings"].append("KneeScan ACL length not applied: %s" % why)
-        rows.append({"reading": "ACL length", "value": L, "units": "mm", "param": "lig.length_target_mm", "result": "not applied", "note": why})
+        why = ("no calibrated millimetre value" if L is None else "outside the current parametric target-length domain")
+        if L is not None:
+            state["assets"].setdefault("reported", {})["ligament.length_mm"] = L
+        rows.append({"reading": "ACL length", "value": L, "units": "mm", "param": "lig.length_target_mm",
+                     "result": "recorded" if L is not None else "not applied",
+                     "note": why + "; attachment-derived geometry used so the exploratory scaffold can still be built"})
     # ---- recorded only
     loc = rd["acl_location"]
-    if loc["slice"] is not None:
-        rep["warnings"].append("KneeScan ACL location: slice %d of %s, box x %s-%s, y %s-%s px. Recorded only: the modeler places the ligament "
-                               "from its footprints in its own knee frame and has no image-location input." % (
-                                   loc["slice"] + 1, loc["slices"], loc["box_px"][0], loc["box_px"][2], loc["box_px"][1], loc["box_px"][3]))
+    # Kept in the traceable mapping below; it is not a build warning because
+    # the scaffold model intentionally uses its own explicit coordinate frame.
     rows.append({"reading": "ACL location", "value": loc, "param": None, "result": "recorded",
                  "note": "the modeler has no image-location input; stored with the design"})
     ff = rd["femur_fibula"]
-    if ff and ff.get("value_mm") is not None:
-        rep["warnings"].append("KneeScan femur to fibular head distance %s mm (experimental). Recorded only: the modeler has no fibula." % ff["value_mm"])
     rows.append({"reading": "Femur to fibular head", "value": (ff or {}).get("value_mm"), "units": "mm", "param": None,
                  "result": "recorded" if ff and ff.get("value_mm") is not None else "not measured",
                  "note": "the modeler has no fibula; stored with the design" if ff and ff.get("value_mm") is not None
                  else ((ff or {}).get("error") or "femur-fibula step was off")})
-    for w in r.get("warnings") or []:
-        rep["warnings"].append("KneeScan: " + w)
-    rec = {"source": SOURCE, "run_id": run_id, "file": (r.get("input") or {}).get("file"), "readings": rd}
+    rec = {"source": SOURCE, "run_id": run_id, "file": (r.get("input") or {}).get("file"), "readings": rd,
+           "reader_notes": list(r.get("warnings") or [])}
     state["assets"]["mri_readings"] = rec
     state["imported"]["assets"]["mri_readings"] = copy.deepcopy(rec)
     return rows
@@ -411,31 +408,51 @@ def build_state(r, laterality, filename, run_id=None):
     if state is None:
         raise ValueError("the modeler rejected the readings: " + "; ".join(report["errors"]))
     rows = apply_readings(state, r, run_id)
-    for n in notes:
-        state["imported"]["meta"]["report"]["warnings"].append(n)
+    # A measured length can be numerically valid yet unreachable from the
+    # procedural attachment centres. In exploratory MRI mode, keep the raw
+    # reading but use the attachment-derived centreline instead of failing the
+    # entire scaffold build.
+    lc = length_check(state)
+    if lc and lc.get("ok") is False:
+        for target in (state, state["imported"]):
+            target["params"]["lig.length_mode"] = "from_attachments"
+            target["provenance"]["lig.length_mode"] = {
+                "status": "inferred", "source": "%s exploratory mapping" % SOURCE,
+                "note": "Measured ACL length retained in assets; attachment-derived centreline used because the current parametric frame cannot reach it."
+            }
+        for row in rows:
+            if row["reading"] == "ACL length":
+                row.update(result="recorded", sent=None,
+                           note="measurement retained; attachment-derived geometry used so scaffold creation is not blocked")
+                break
+    state["assets"].setdefault("mri_mapping", {})["notes"] = list(notes)
+    state["imported"]["assets"].setdefault("mri_mapping", {})["notes"] = list(notes)
     errs, _ = D.validate_params(dict(state["params"]))
     if errs:
         raise ValueError("the readings give invalid modeler parameters: " + "; ".join("%s: %s" % (e["param"], e["message"]) for e in errs))
     state["case"]["label"] = "MRI upload: %s (%s, %s knee)" % (os.path.basename(filename), SOURCE, laterality)
+    state["case"]["exploratory"] = True
     state["case"]["notes"] = doc["notes"]
     state["history"].append({"action": "mri_upload", "case": case_id, "source": SOURCE, "run_id": run_id,
                              "t": datetime.datetime.now().isoformat(timespec="seconds")})
     return state, rows, doc, notes
 
 
-def design_from_result(r, laterality, filename, run_id=None):
-    """KneeScan results -> saved design state. Used by the upload job and by the imaging workspace, which runs
-    KneeScan itself. Returns the summary the pages show (state id, readings, what was sent, length preview)."""
+def design_from_result(result, laterality, filename, run_id=None):
+    """Convert verified KneeScan readings into a saved scaffold design state."""
     import server_v2 as V2
     if laterality not in ("right", "left"):
         raise ValueError("choose the knee side (right or left): KneeScan cannot tell them apart")
-    if not isinstance(r, dict) or "tear" not in r:
+    if not isinstance(result, dict) or "tear" not in result:
         raise ValueError("this is not a KneeScan results file (no tear reading)")
-    state, rows, doc, notes = build_state(r, laterality, filename, run_id)
-    lc = length_check(state)
-    return {"state_id": V2.save_state(state), "state": state, "readings": readings(r), "mapping": rows, "length_check": lc,
-            "notes": notes, "warnings": r.get("warnings") or [], "seconds": r.get("seconds"), "input": r.get("input"),
-            "document": doc}
+    state, rows, document, notes = build_state(result, laterality, filename, run_id)
+    return {
+        "state_id": V2.save_state(state), "state": state,
+        "readings": readings(result), "mapping": rows,
+        "length_check": length_check(state), "notes": notes,
+        "warnings": [], "reader_notes": result.get("warnings") or [], "seconds": result.get("seconds"),
+        "input": result.get("input"), "document": document,
+    }
 
 
 # --------------------------------------------------------------------------- upload jobs
@@ -483,7 +500,7 @@ def _run_job(job, scan_path):
             shutil.rmtree(os.path.dirname(scan_path), ignore_errors=True)
         _set_step(job, "convert", "converting the readings into modeler parameters")
         out = design_from_result(r, job["side"], job["filename"], job["id"])
-        out.pop("state")                          # saved under state_id; the page loads it from there
+        out.pop("state")
         _set_step(job, "save", "saving the design")
         for s in job["steps"]:
             s["state"] = "done"

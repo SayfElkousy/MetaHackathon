@@ -1,25 +1,51 @@
-# ACL repair designer (v2)
+# Bundlr
+
+MRI-guided ACL scaffold design, inspection, validation, and export workspace.
+
+## Demo quick start
+
+Run the complete preflight and workspace with one command:
+
+```bash
+tools/run_demo.sh 8000
+```
+
+Then open <http://127.0.0.1:8000/>. The preflight checks the synthetic imaging fixture, scaffold build,
+Muse configuration, optional KneeScan service, and selected port without printing secrets. To require a verified
+Muse connection before a demo, run:
+
+```bash
+./.venv/bin/python tools/demo_preflight.py --port 8000 --require-muse
+```
+
+The top-bar **Reset demo** action restores the known synthetic case, valid scaffold, MPR + Scaffold layout, camera,
+transaction history, and a clean Muse conversation. The five-minute presentation path and recovery notes are in
+[`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md). Never commit `.env.muse`; the application reads it only on the server.
 
 **3A (scaffold fit):** the scaffold is generated inside a millimetre repair space (target envelope ∩ affected AM/PL region ∩ damaged interval + permitted overlap, with strand radius and clearances), verified in 3D, highlighted where it fails, and sectioned from the same geometry along the ACL, either bundle, or axial/sagittal/coronal planes. See `docs/V2_REPORT.md` §7.
 
-`python tools/server.py` then open http://127.0.0.1:8000/. That is the one page: it asks for an MRI, holds the scaffold builder and is the imaging workspace. `/view?state=<id>` is its pop-out scaffold view; the old addresses `/workspace`, `/upload` and `/classic` lead to `/`.
+`python tools/server.py` then open http://127.0.0.1:8000/. This is the single MRI-first workspace; `/view?state=<id>` is the scaffold pop-out. Old `/workspace`, `/upload`, and `/classic` links redirect to `/`.
 
 - Anatomical scene: procedural distal femur / proximal tibia with cartilage (or imported patient meshes), footprints on bone, retained ligament tissue, injury region, intact reference, and a scaffold placed by the injury.
 - Adjustable hierarchy (bundles → fascicle groups → representative fibers), separate twist channels, multiphasic regions.
 - **Scaffold Levels** (default construct): six editable levels — 1 surface coating/nano-texture, 2 grooves, 3 hollow channels, 4 braided AM-like/PL-like mantles, 5 ribbon sheath, 6 flared graded ends — with highlight/isolate/neighbour views, a level cross-section, true-scale magnified details, and conflicts with tested fixes. Knee pose, tear and reference anatomy are in the separate **Anatomy and Pose** panel. See `docs/V2_REPORT.md` §9; engine `acl_engine/v2/layered.py`. The earlier gap-filling braided/aligned scaffold remains available as a construct type.
-- **Imaging workspace** (the page itself): gray/white V7-inspired tabbed workspace with MPR (axial/sagittal/coronal, linked crosshairs, windowing, colour maps), segmentation overlays and editing, quality control, landmark/distance measurements, traceable evidence → scaffold mappings, and the Muse controller (every control registered, one undoable transaction per request). What works, what needs model access, what is not implemented: `docs/IMAGING_WORKSPACE.md`.
+- **Imaging workspace** (the root page): gray/white V7-inspired tabbed workspace with MPR (axial/sagittal/coronal, linked crosshairs, windowing, colour maps), segmentation overlays and editing, quality control, landmark/distance measurements, traceable evidence → scaffold mappings, and the Muse controller (every control registered, one undoable transaction per request). What works, what needs model access, what is not implemented: `docs/IMAGING_WORKSPACE.md`.
 - **Muse Spark setup:** copy `.env.muse.example` to `.env.muse`, add a Meta Model API `MODEL_API_KEY`, and restart the server. The app defaults to `muse-spark-1.3` at `https://api.meta.ai/v1`; `.env.muse` is gitignored.
 - Patient-specific input from an MRI-analysis model: `docs/PATIENT_INPUT.md`; synthetic fixtures in `fixtures/patients/`.
-- **MRI upload** (opens on its own when no design is loaded, or **Upload MRI** in the header): send a scan to the KneeScan MRI reader (`mri_analysis/`) and build the scaffold model from its readings. See "MRI upload" below.
+- **MRI upload** (opens automatically with no design, or via **Upload MRI**): send a scan to the KneeScan reader and build the first model from its readings. See "MRI upload" below.
 
-## MRI upload: scan → KneeScan → scaffold builder
+## MRI upload: scan → KneeScan → designer
 
-1. Once per computer: `python tools/setup_kneescan.py`. It creates KneeScan's own Python environment, installs `mri_analysis/requirements.txt` (PyTorch CPU, MONAI, transformers, Gradio; about 1 GB) and downloads the model weights (about 470 MB) from the private Hugging Face repo `tariksyed/kneescan`, asking for a read token. Everything goes to `%LOCALAPPDATA%\KneeScan` (`~/.kneescan` on macOS/Linux; set `KNEESCAN_HOME` to change it), outside the project folder, which may be synced. Re-running skips finished steps.
-2. `python tools/server.py`, open http://127.0.0.1:8000/. The server starts KneeScan in the background (`tools/reader_launcher.py`, the way the Colab notebook runs it) and stops it on exit; the upload window shows **starting…** while the models load (about a minute on a CPU), then **connected**. Nothing to paste. To use another reader instead (e.g. the Colab notebook's `gradio.live` link), paste its address in the upload window or set `KNEESCAN_URL`; `KNEESCAN_AUTOSTART=0` turns the automatic start off. KneeScan's output goes to `kneescan.log` in the KneeScan folder.
-3. With no design loaded the page asks for an MRI: choose the scan and the knee side, press **Analyze and send to the scaffold builder**.
-4. Review the readings and what was sent, then **Build the scaffold model**: the design loads in the same page.
+1. Once per computer run `python tools/setup_kneescan.py`. It creates a separate environment under `~/.kneescan` (or `%LOCALAPPDATA%\KneeScan`), installs the reader, and downloads its private Hugging Face weights. Re-running safely skips completed steps.
+2. Run `python tools/server.py` and open http://127.0.0.1:8000/. The server starts KneeScan in the background and stops it on exit. The upload dialog reports **starting**, **connected**, or an actionable setup error. Set `KNEESCAN_AUTOSTART=0` to disable this; `KNEESCAN_URL` may point to another reader such as Colab.
+3. Choose a scan and knee side, then press **Analyze and send to the scaffold builder**. Review the readings and mapping before building the scaffold in the same page.
 
-There is no preloaded sample model: the scaffold view shows **Waiting for an MRI** until a design made from KneeScan readings exists. It comes from the upload dialog, or from **AI segmentation → Run on this series** (or importing a KneeScan results JSON) when no design is loaded yet; the panel then asks for the knee side (preset from the DICOM Laterality tag when present). A design opened by link (`?state=<id>`) loads as before, and the synthetic demo cases stay available under **Open / import**.
+No stock scaffold is presented as patient-specific. Without a saved `?state=` link, Bundlr waits for an MRI. Synthetic demo cases remain available under **Open / import** and **Reset demo**.
+
+MRI imports use a permissive exploratory mapping: legacy publication ranges do not block scaffold creation. Raw model
+measurements remain in the design provenance; values the current parametric frame cannot represent directly fall back
+to attachment-derived template geometry. Corrupt files, non-finite measurements, and invalid spatial transforms remain
+technical errors. This behavior is for research prototyping and does not establish clinical suitability.
 
 `tools/mri_bridge.py` does the transfer only; neither the reader nor the modeler changed. It calls the reader's own Gradio API (`/analyze`, the same call its web page makes), converts the results to `acl-mri-input` and runs the modeler's importer (`acl_engine/v2/patient.py`):
 
@@ -37,7 +63,7 @@ Sizes from a torn ACL or a failed outline check are marked *awaiting review*, fo
 
 ---
 
-# ACL Scaffold Geometry Engine
+# Bundlr Geometry Engine
 
 Builds a three-strand braided ACL scaffold, places it inside a simple 3D knee,
 checks it, and saves files you can look at. This is Muse's code (milestones M1,
@@ -88,7 +114,9 @@ python tools/server.py
 
 Your browser opens the designer. Move a slider and the 3D model rebuilds in about a second,
 with pass/fail checks and hints on the right. **Save design** writes a file into `fixtures/`;
-**Export STL** downloads the scaffold for 3D printing. Press Ctrl+C in the terminal to stop.
+**Export** opens the selection-aware binary-STL workflow. It exports the current scaffold snapshot in millimetres,
+supports entire/level/component/custom-part selection and combined or separate files, and packages the recreatable
+`design.json`, component manifest and validation report with the mesh. Press Ctrl+C in the terminal to stop.
 It runs only on your computer, and needs internet the first time to load the 3D library.
 
 ## Seeing the results

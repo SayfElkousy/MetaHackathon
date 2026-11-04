@@ -36,13 +36,14 @@ const fmtV = v => v == null ? '—' : typeof v === 'number' ? String(+v.toFixed(
 
 export class Txn {
   constructor(ctx) {
-    this.ctx = ctx; this.revision = 0; this.keyRev = new Map(); this.seen = new Set(); this.cards = []; this.last = null;
+    this.ctx = ctx; this.revision = 0; this.keyRev = new Map(); this.seen = new Set(); this.cards = []; this.last = null; this.lastActionAt = 0;
     window.addEventListener('acl:param', (ev) => {
       if (ev.detail.actor === 'muse') return;                   // our own writes are counted when the transaction commits
       this.revision++; for (const k of ev.detail.keys || []) this.keyRev.set(k, this.revision);
     });
   }
   touch(keys) { this.revision++; for (const k of keys) this.keyRev.set(k, this.revision); }
+  reset() { this.revision = 0; this.keyRev.clear(); this.seen.clear(); this.cards.length = 0; this.last = null; this.lastView = null; this.lastGeom = null; this.lastActionAt = 0; }
   viewSnapshot() {
     const { app, IM, ws } = this.ctx, S = app.S, cam = app.cam(), ctl = app.ctl();
     return { cam: cam && { p: cam.position.toArray(), t: ctl.target.toArray() }, vis: clone(S.vis), opac: clone(S.opac), builder: !!S.builder,
@@ -79,10 +80,6 @@ export class Txn {
       timings: { model_ms: tx.model_ms ?? null }, status: 'pending', revision: this.revision };
     if (this.seen.has(tx.id)) return Object.assign(card, { status: 'duplicate', errors: ['This request was already applied.'] });
     this.seen.add(tx.id);
-    if (!S.state && (tx.changes || []).length) {                  // nothing to change until an MRI has made a design
-      card.status = 'rejected'; card.errors.push('No scaffold design yet: upload an MRI, or run KneeScan on a series, to build one first.');
-      this.push(card); return card;
-    }
     const keep = (tx.keep || []).filter(Boolean);
     const kept = k => keep.some(p => k === p || (p.endsWith('*') ? k.startsWith(p.slice(0, -1)) : k.startsWith(p + '.')));
     const staged = [];
@@ -123,7 +120,7 @@ export class Txn {
         card.changes.push({ key: s.e.key, label: s.e.label, units: s.e.units, level: s.e.level, from, to: clone(s.value), param: true, evidence: s.c.evidence || null });
       }
       app.gestureCommit('Muse: ' + card.label);
-      rec.undoEntry = S.undoStack[S.undoStack.length - 1]; this.lastGeom = rec;
+      rec.undoEntry = S.undoStack[S.undoStack.length - 1]; this.lastGeom = rec; this.lastActionAt = Date.now();
       app.renderControls(); app.refreshUndoButtons();
       seq0 = S.seq;
       app.afterEdit(true);                                   // preview build, then the final build (the designer chains them)

@@ -70,8 +70,8 @@ def test_complete_tear_drives_modeler_parameters():
     assert rec["femur_fibula"]["value_mm"] == 20.6 and rec["acl_location"]["slice"] == 14
     assert row(rows, "ACL location")["result"] == "recorded"
     assert row(rows, "Femur to fibular head")["result"] == "recorded"
-    warns = " ".join(st["imported"]["meta"]["report"]["warnings"])
-    assert "fibular head distance 20.6 mm" in warns and "ACL location: slice 15" in warns
+    assert st["assets"]["mri_readings"]["reader_notes"]
+    assert not any("fibular head distance" in x or "ACL location" in x for x in st["imported"]["meta"]["report"]["warnings"])
     assert not st["case"]["synthetic"]
     errs, _ = D.validate_params(dict(p))
     assert not errs
@@ -111,6 +111,7 @@ def test_out_of_range_width_is_reported_not_clamped():
     assert "ligament" not in doc
     assert st["params"]["lig.width_profile"] == D.BY_ID["lig.width_profile"]["default"]
     assert any("leaves the modeler's limits" in n for n in notes)
+    assert st["case"]["exploratory"] is True
 
 
 def test_length_check_reports_modeler_range():
@@ -118,8 +119,19 @@ def test_length_check_reports_modeler_range():
     lc = MB.length_check(st)
     assert lc["ok"] is True and lc["reached_mm"] == pytest.approx(34.0, abs=0.2)
     st, _, _, _ = MB.build_state(kneescan_result(length_mm=26.0), "right", "d.npy")
-    lc = MB.length_check(st)
-    assert lc["ok"] is False and "shorter than the shortest path" in lc["message"]
+    assert st["params"]["lig.length_mode"] == "from_attachments"
+    assert MB.length_check(st) is None
+    assert st["assets"]["reported"]["ligament.length_mm"] == 26.0
+
+
+def test_extreme_publication_outliers_do_not_block_exploratory_scaffold():
+    from acl_engine.v2.scene import build_scene
+    st, rows, _, _ = MB.build_state(kneescan_result(length_mm=120.0, width_mm=1.2), "right", "outlier.nii.gz")
+    errs, _ = D.validate_params(dict(st["params"]))
+    assert not errs
+    assert row(rows, "ACL length")["result"] == "recorded"
+    assert row(rows, "ACL width")["result"] == "not applied"
+    assert build_scene(st, "preview")["ok"]
 
 
 # --------------------------------------------------------------------------- reader client

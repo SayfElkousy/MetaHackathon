@@ -1,7 +1,7 @@
 """N3 local server. Stdlib only. 127.0.0.1 only.
 
 Run:  python tools/server.py      (opens http://127.0.0.1:8000/)
-Written by Muse (N3). Fixes are marked "FIX".
+Written by Muse (N3). Fixes by Claude are marked "FIX (Claude)".
 """
 import base64
 import copy
@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# FIX: "python tools/server.py" puts tools/ on the path, not the project root,
+# FIX (Claude): "python tools/server.py" puts tools/ on the path, not the project root,
 # so every build failed with "No module named acl_engine".
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -56,7 +56,7 @@ def _load_fixture_summary(path):
 
 
 def editable_request(req):
-    """FIX: upgrade an older design so every slider has a field to edit.
+    """FIX (Claude): upgrade an older design so every slider has a field to edit.
 
     Without this, sliders did nothing or crashed on the 2.0.0 fixtures (starter, pass):
     - fold depth: they use architecture.lift_mm, not architecture.fold.fold_depth_mm
@@ -129,8 +129,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        # One page: the workspace at "/" asks for an MRI (upload dialog), holds the scaffold builder and the imaging
-        # workspace. "/view" is its pop-out / second scaffold view. Old page addresses lead to "/" (a ?state= link is kept).
+        # The MRI-first workspace is the product. The scaffold-only page remains
+        # available as a pop-out view for multi-monitor demos.
         if u.path in ("/", "/index.html"):
             return self._serve_file(os.path.join(WEB, "ws", "index.html"), "text/html")
         if u.path == "/view":
@@ -151,6 +151,9 @@ class H(BaseHTTPRequestHandler):
         if u.path == "/api/muse/status":
             import muse_api
             return _send_json(self, 200, muse_api.status())
+        if u.path == "/api/research/status":
+            import research
+            return _send_json(self, 200, research.status())
         if u.path.startswith("/api/mri/"):
             return self._mri_get(u)
         if u.path.startswith("/v2/"):
@@ -261,8 +264,7 @@ class H(BaseHTTPRequestHandler):
         return _send_json(self, 200, {"job": jid})
 
     def _mri_from_result(self, body):
-        """POST /api/mri/from_result {result, side, filename}: a KneeScan result the caller already has (the imaging
-        workspace runs KneeScan itself) -> saved design state for the scaffold builder."""
+        """Turn KneeScan readings already produced in the workspace into a design."""
         import mri_bridge as MB
         try:
             out = MB.design_from_result(body.get("result"), body.get("side"), str(body.get("filename") or "scan"))
@@ -336,6 +338,22 @@ class H(BaseHTTPRequestHandler):
             import muse_api
             code, out = muse_api.plan(body)
             return _send_json(self, code, out)
+        if u.path == "/api/muse/test":
+            import muse_api
+            code, out = muse_api.probe()
+            return _send_json(self, code, out)
+        if u.path == "/api/muse/respond":
+            import muse_api
+            code, out = muse_api.respond(body)
+            return _send_json(self, code, out)
+        if u.path == "/api/research/search":
+            import research
+            try:
+                return _send_json(self, 200, research.search(body.get("query"), body.get("limit", 5)))
+            except ValueError as e:
+                return _send_json(self, 400, {"error": str(e)})
+            except Exception as e:
+                return _send_json(self, 502, {"error": "PubMed research unavailable: %s" % e})
         if u.path == "/api/build":
             return self._build(body)
         if u.path == "/api/save":
@@ -384,6 +402,9 @@ class H(BaseHTTPRequestHandler):
                 if not isinstance(st, dict) or "params" not in st:
                     return _send_json(self, 400, {"error": "missing state"})
                 return _send_json(self, 200, {"id": V2.save_state(st)})
+            if path == "/api/v2/export/inspect":
+                code, out = V2.export_inspect_request(body)
+                return _send_json(self, code, out)
             if path == "/api/v2/export":
                 code, man, data = V2.export_request(body)
                 if code != 200:
@@ -391,7 +412,7 @@ class H(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/zip")
                 self.send_header("Content-Length", str(len(data)))
-                self.send_header("Content-Disposition", "attachment; filename=acl_scaffold_%s.zip" % man["design_hash"])
+                self.send_header("Content-Disposition", "attachment; filename=bundlr_scaffold_%s.zip" % man["design_hash"])
                 self.send_header("X-Design-Hash", man["design_hash"])
                 self.send_header("X-Geometry-Hash", man["geometry_hash"])
                 self.end_headers()
@@ -411,7 +432,7 @@ class H(BaseHTTPRequestHandler):
         try:
             return validate_request(req)
         except (ValueError, KeyError, TypeError) as e:
-            # FIX: a missing key raised KeyError, which escaped as a dropped connection.
+            # FIX (Claude): a missing key raised KeyError, which escaped as a dropped connection.
             _send_json(self, 400, {"error": "%s: %s" % (type(e).__name__, e), "field": "request", "hint": "see validation message"})
             return None
 
@@ -426,7 +447,7 @@ class H(BaseHTTPRequestHandler):
             return
         norm, mig = v
         t0 = time.time()
-        # FIX: Muse used mkdtemp and never deleted it: one folder of files per slider move.
+        # FIX (Claude): Muse used mkdtemp and never deleted it: one folder of files per slider move.
         with BUILD_LOCK, tempfile.TemporaryDirectory(prefix="n3build_") as tmp:
             try:
                 res = run_request(norm, mig, quality, tmp, skip_stl=True)
@@ -479,7 +500,7 @@ class H(BaseHTTPRequestHandler):
             try:
                 run_request(norm, mig, "export", tmp)
             except Exception as e:
-                # FIX: errors here were not caught, so the browser got a dropped connection.
+                # FIX (Claude): errors here were not caught, so the browser got a dropped connection.
                 traceback.print_exc()
                 return _send_json(self, 500, {"error": "export failed: %s" % e, "field": "request", "hint": "see server log"})
             with open(os.path.join(tmp, "scaffold.stl"), "rb") as f:
@@ -528,7 +549,7 @@ def run(port=8000, open_browser=True):
             continue
     if srv is None:
         raise OSError("ports %d-%d busy" % (port, port + 10))
-    print("MRI to scaffold workspace: http://127.0.0.1:%d/  (upload an MRI there; /view is the pop-out scaffold view). Press Ctrl+C to stop." % used)
+    print("Bundlr: http://127.0.0.1:%d/  (MRI workspace; /view is the scaffold pop-out). Press Ctrl+C to stop." % used)
 
     def _warm():
         try:
@@ -541,7 +562,6 @@ def run(port=8000, open_browser=True):
     threading.Thread(target=_warm, daemon=True).start()
 
     def _reader():
-        # the KneeScan MRI reader runs next to this server, so the page finds it without an address (tools/reader_launcher.py)
         try:
             import reader_launcher as RL
             print("MRI reader: " + RL.autostart()["message"], flush=True)

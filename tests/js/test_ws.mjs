@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import * as M from '../../tools/web/ws/volmath.js';
 import { parse, convert, resolve, keepPrefixes } from '../../tools/web/ws/intent.js';
 import { validateValue } from '../../tools/web/ws/txn.js';
+import { rank } from '../../tools/web/ws/registry.js';
 
 // canonical RAS+ volume, anisotropic: 3 mm along i (L-R), 0.5 mm in-plane — like a sagittal knee acquisition
 const vol = (over) => Object.assign({ shape: [21, 160, 180], zooms: [3, 0.5, 0.5], orientation_known: true, spacing_known: true,
@@ -63,8 +64,13 @@ const reg = { entries: new Map([
   entry('sheath.wall_mm', 'Sheath wall thickness', { units: 'mm', min: 0.05, max: 2, param: true, level: 5, get: () => 0.4 }),
   entry('ch.wall_um', 'Channel wall thickness', { units: 'um', min: 20, max: 400, param: true, level: 3 }),
   entry('ch.lumen_um', 'Channel lumen diameter', { units: 'um', min: 50, max: 800, param: true, level: 3, get: () => 200 }),
+  entry('ch.spacing_um', 'Channel spacing', { units: 'um', min: 20, max: 500, param: true, level: 3, get: () => 100, depends: ['ch.lumen_um'] }),
   entry('gr.width_um', 'Groove width', { units: 'um', min: 2, max: 100, param: true, level: 2 }),
+  entry('pose.flexion_deg', 'Knee flexion', { units: 'deg', min: 0, max: 120, param: true, level: 0 }),
+  entry('rf.pl.strands', 'PL mantle carriers', { units: 'count', min: 4, max: 40, param: true, level: 4 }),
   entry('img.overlay.opacity', 'Segmentation overlay opacity', { units: 'fraction', min: 0, max: 1 }),
+  entry('display.section_kind', 'Section plane', { kind: 'enum', options: ['sagittal', 'coronal'], get: () => 'coronal' }),
+  entry('display.section_s', 'Section position', { min: .02, max: .98, get: () => .4 }),
   entry('scaffold.braid_angle_deg', 'Braid angle', { units: 'deg', min: 10, max: 60, readOnly: 'computed: tan(angle) = 2πR / pitch' }),
   entry('scaffold.braid_pitch_mm', 'Braid pitch', { units: 'mm', min: 1, max: 30 }),
 ].map(e => [e.key, e])), actions: new Map() };
@@ -89,6 +95,27 @@ test('brief examples map to the right actions', () => {
   assert.equal(p('Undo that change')[0].name, 'design.undo_last');
   assert.equal(p('Keep the geometry but restore the previous view')[0].name, 'design.restore_view');
   assert.equal(p('Run the segmentation')[0].name, 'seg.run');
+  assert.deepEqual(p('Set the sheath wall to 0.3 mm')[0].args.changes, [{ key: 'sheath.wall_mm', value: 0.3 }]);
+  assert.equal(p('Inspect the current design and explain any failed fit checks')[0].name, 'design.inspect');
+  assert.equal(p('Diagnose this MRI')[0].name, 'ask_user');
+  assert.equal(p('List verified fit corrections')[0].name, 'design.list_verified_fixes');
+  assert.equal(p('Apply the selected verified fit correction')[0].name, 'design.apply_verified_fix');
+  assert.deepEqual(p('Export the scaffold as an STL in millimeters')[0], { name: 'export.download', args: { scope: 'entire', mode: 'combined', detail: 'standard', component_ids: [], levels: [] } });
+  assert.deepEqual(p('Export only the outer sheath')[0].args, { scope: 'components', mode: 'combined', detail: 'standard', component_ids: ['sheath'], levels: [] });
+  assert.equal(p('Download each component separately')[0].args.mode, 'separate');
+  assert.equal(p('Check this design before exporting')[0].name, 'export.inspect');
+  assert.equal(p('Explain the export warnings')[0].name, 'export.explain_warnings');
+  assert.deepEqual(p('Increase channel spacing by 20 microns')[0].args.changes, [{ key: 'ch.spacing_um', value: 120 }]);
+  assert.deepEqual(p('Show a midpoint sagittal section')[0].args.changes, [{ key: 'display.section_kind', value: 'sagittal' }, { key: 'display.section_s', value: 0.5 }]);
+});
+
+test('explicit custom component request is executable without a model', () => {
+  const c = parse('Create an independent sleeve length 12 mm diameter 3 mm wall 0.4 mm at [2, 4, 6] mm', reg).calls[0];
+  assert.equal(c.name, 'custom.create');
+  assert.equal(c.args.operation, 'sleeve');
+  assert.deepEqual(c.args.position_mm, [2, 4, 6]);
+  assert.deepEqual(c.args.relationship, { mode: 'independent', target: null });
+  assert.equal(c.args.dimensions.wall_mm, 0.4);
 });
 
 test('generic edits, units, relative changes, several edits in one transaction', () => {
@@ -112,6 +139,22 @@ test('composite evidence request keeps groove settings and shows the result insi
   assert.ok(r.notes.some(n => /registration/.test(n)));
   assert.deepEqual(r.calls.find(c => c.name === 'set_controls').args.changes, [{ key: 'view.mode', value: 'anatomy' }, { key: 'view.acl_overlay', value: true }]);
   assert.deepEqual(keepPrefixes('retain the current groove settings', reg), ['gr.*']);
+});
+
+test('keep constraints cover patient geometry, microscopic levels, and PL reinforcement', () => {
+  assert.deepEqual(keepPrefixes('keep all patient geometry unchanged', reg), ['pose.flexion_deg']);
+  const micro = keepPrefixes('preserve microscopic scaffold settings', reg);
+  assert.ok(micro.includes('gr.width_um') && micro.includes('ch.lumen_um') && micro.includes('rf.pl.strands'));
+  assert.deepEqual(keepPrefixes('keep the PL mantle unchanged', reg), ['rf.pl.strands']);
+});
+
+test('relevance synonyms expand direct dependencies', () => {
+  const got = rank(reg, 'check lumen clearance and collision', 12).map(e => e.key);
+  assert.ok(got.includes('ch.lumen_um'));
+  const spacing = rank(reg, 'channel spacing', 12).map(e => e.key);
+  assert.ok(spacing.includes('ch.spacing_um') && spacing.includes('ch.lumen_um'));
+  assert.ok(rank(reg, 'ribbon wall', 12).some(e => e.key === 'sheath.wall_mm'));
+  assert.ok(rank(reg, 'PL mantle carriers', 12).some(e => e.key === 'rf.pl.strands'));
 });
 
 test('validation: bounds, read-only derived values, kinds', () => {

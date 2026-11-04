@@ -134,8 +134,7 @@ export function buildRegistry(ctx) {
       IM.overlay.visible = true; IM.overlay.labels.set(l.name, Object.assign({ opacity: 1 }, IM.overlay.labels.get(l.name), { visible: true })); IM.emit('overlay'); return `showing ${l.name}`; } });
   act({ name: 'img.show_original', description: 'Show the original MRI without overlays or annotations (windowing unchanged)',
     run: () => { IM.overlay.visible = false; IM.annotationsVisible = false; IM.emit('overlay'); IM.emit('annotations'); return 'overlays and annotations hidden'; } });
-  act({ name: 'seg.run', description: 'Run the configured segmentation service (KneeScan) on the active volume. With no scaffold design yet, its readings build the first one (needs the knee side).',
-    params: { do_bones: { type: 'boolean' }, side: { type: 'string', enum: ['right', 'left'] } },
+  act({ name: 'seg.run', description: 'Run KneeScan on the active volume. With no scaffold yet, its verified readings build the first design and require knee side.', params: { do_bones: { type: 'boolean' }, side: { type: 'string', enum: ['right', 'left'] } },
     run: async a => ws.runSegmentation(a) });
   // ---------------------------------------------------------------- workspace
   act({ name: 'ws.preset', description: 'Apply a workspace layout', params: { name: { type: 'string', enum: ['mpr_scaffold', 'mpr', 'scaffold', 'review'] } }, required: ['name'],
@@ -149,7 +148,40 @@ export function buildRegistry(ctx) {
     params: { scope: { type: 'array', items: { type: 'string' } }, include_assumptions: { type: 'boolean' }, keep: { type: 'array', items: { type: 'string' } } },
     run: async a => ws.applyEvidence(a) });
   act({ name: 'evidence.show_sources', description: 'Show which settings came from MRI measurements, reports or models', run: () => ws.showSources() });
-  act({ name: 'design.undo_last', description: 'Undo the last Muse change', run: () => ws.txn.undoLast() });
+  act({ name: 'design.inspect', description: 'Read a fresh, revision-labelled snapshot of current parameters, components, provenance, measurements, validation, layout and camera before answering a design question',
+    params: { query: { type: 'string' }, level: { type: 'integer', minimum: 0, maximum: 6 } }, run: a => ws.inspectDesign(a) });
+  act({ name: 'design.list_verified_fixes', description: 'Ask the deterministic engine to rebuild and list verified corrections for current failed layered-scaffold checks. Fix ids are tied to the current revision.',
+    run: () => ws.listVerifiedFixes() });
+  act({ name: 'design.apply_verified_fix', description: 'Apply one previously listed engine-verified correction. Never invent a fix id.', params: { fix_id: { type: 'string' } },
+    run: () => { throw new Error('verified fixes are expanded by the transaction coordinator'); } });
+  // ---------------------------------------------------------------- physical export (same pipeline as the toolbar)
+  const exportParams = { scope: { type: 'string', enum: ['entire', 'components', 'levels', 'custom'] },
+    component_ids: { type: 'array', items: { type: 'string' } }, levels: { type: 'array', items: { type: 'integer' } },
+    mode: { type: 'string', enum: ['combined', 'separate'] }, detail: { type: 'string', enum: ['draft', 'standard', 'high'] },
+    repair: { type: 'boolean' }, center_parts: { type: 'boolean' } };
+  act({ name: 'export.inspect', description: 'Inspect actual exportable scaffold meshes, bounds, units, omissions and validation without downloading. Anatomy, MRI and viewer effects are excluded.',
+    params: exportParams, run: async a => app.inspectExport(a || {}) });
+  act({ name: 'export.download', description: 'Generate and download a real binary-STL package from an immutable design snapshot using the same validated export pipeline as the toolbar. Do not claim completion before this action returns.',
+    params: exportParams, run: async a => app.exportScaffold(a || { scope: 'entire', mode: 'combined', detail: 'standard' }) });
+  act({ name: 'export.explain_warnings', description: 'Run export inspection and return the actual mesh, omitted-feature and manufacturing warnings for the current design.',
+    params: exportParams, run: async a => app.inspectExport(a || {}) });
+  act({ name: 'research.search', description: 'Search PubMed for generalized anatomical or engineering evidence. Never include patient identifiers or report text.',
+    params: { query: { type: 'string', description: 'Generalized scientific concepts only' }, limit: { type: 'integer', minimum: 1, maximum: 8 } }, required: ['query'],
+    run: async a => { const r = await fetch('/api/research/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: a.query, limit: a.limit || 5 }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'research unavailable'); return j; } });
+  act({ name: 'custom.create', description: 'Create an editable parametric custom component using an audited operation; definitions are data, never code',
+    params: { name: { type: 'string' }, purpose: { type: 'string' }, operation: { type: 'string', enum: ws.custom.supported().operations },
+      dimensions: { type: 'object' }, position_mm: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }, rotation_deg: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+      material: { type: 'string', enum: ws.custom.supported().materials }, level: { type: 'integer', minimum: 1, maximum: 6 }, relationship: { type: 'object' }, assumptions: { type: 'array', items: { type: 'string' } } },
+    required: ['name', 'purpose', 'operation', 'dimensions', 'relationship'], run: a => ws.custom.create(a) });
+  act({ name: 'custom.update', description: 'Update a named custom component through its parametric definition', params: { id: { type: 'string' }, patch: { type: 'object' } }, required: ['id', 'patch'], run: a => ws.custom.update(a.id, a.patch) });
+  act({ name: 'custom.duplicate', description: 'Duplicate a custom component as an independent editable definition', params: { id: { type: 'string' } }, required: ['id'], run: a => ws.custom.duplicate(a.id) });
+  act({ name: 'custom.delete', description: 'Delete a custom component only when no other custom component depends on it', params: { id: { type: 'string' } }, required: ['id'], run: a => ws.custom.remove(a.id) });
+  act({ name: 'custom.focus', description: 'Frame a custom component using its actual bounds without changing geometry', params: { id: { type: 'string' } }, required: ['id'], run: a => ws.custom.focus(a.id) });
+  act({ name: 'custom.isolate', description: 'Isolate a custom component in the scaffold builder', params: { id: { type: 'string' } }, required: ['id'], run: a => ws.custom.isolate(a.id) });
+  act({ name: 'design.undo_last', description: 'Undo the most recent Muse parameter or custom-component change', run: () => {
+    if (ws.custom.lastActionAt > ws.txn.lastActionAt) return ws.custom.undoLast() || 'There is no custom-component change to undo.';
+    const r = ws.txn.undoLast(); return r.startsWith('There is no Muse geometry change') ? (ws.custom.undoLast() || r) : r;
+  } });
   act({ name: 'design.restore_view', description: 'Keep the geometry but restore the view from before the last Muse change', run: () => ws.txn.restoreView() });
   act({ name: 'ask_user', description: 'Ask the user one focused question instead of acting', params: { question: { type: 'string' } }, required: ['question'], run: a => ({ ask: a.question }) });
   return { entries: E, actions: A };
@@ -168,9 +200,12 @@ export function toolDefs(reg) {
 
 // ------------------------------------------------------------------ relevance (compact context for the model)
 const tok = s => String(s || '').toLowerCase().replace(/[^a-z0-9µ]+/g, ' ').split(' ').filter(w => w.length > 1);
-const SYN = { groove: ['gr', 'groove', 'grooves', 'microgroove'], channel: ['ch', 'channel', 'channels', 'lumen'], braid: ['braid', 'braided', 'mantle'],
-  sheath: ['sheath', 'ribbon'], coating: ['sf', 'coating', 'coat'], footprint: ['fp', 'footprint', 'attachment'], tear: ['injury', 'tear', 'gap'],
-  length: ['length'], width: ['width'], opacity: ['opacity', 'transparency'], window: ['window', 'windowing', 'contrast', 'brightness'] };
+const SYN = { groove: ['gr', 'groove', 'grooves', 'microgroove'], channel: ['ch', 'channel', 'channels', 'lumen'], braid: ['braid', 'braided', 'mantle', 'carrier', 'carriers', 'yarn'],
+  sheath: ['sheath', 'ribbon', 'wall'], coating: ['sf', 'coating', 'coat'], footprint: ['fp', 'footprint', 'attachment', 'end', 'flare'], tear: ['injury', 'tear', 'gap', 'remnant'],
+  rotation: ['rotation', 'twist'], porosity: ['porosity', 'pore', 'pores', 'open', 'volume'], width: ['width', 'thickness', 'diameter'],
+  evidence: ['patient', 'measurement', 'measured', 'mri', 'evidence'], fit: ['fit', 'collision', 'containment', 'clearance', 'blocked'],
+  length: ['length'], opacity: ['opacity', 'transparency'], window: ['window', 'windowing', 'contrast', 'brightness'],
+  export: ['export', 'stl', 'download', 'printing', 'cad', 'millimeters', 'millimetres'] };
 export function rank(reg, query, n = 25) {
   const q = new Set(tok(query)); for (const [k, ws] of Object.entries(SYN)) if (ws.some(w => q.has(w))) ws.forEach(w => q.add(w)), q.add(k);
   const scored = [];
@@ -179,10 +214,17 @@ export function rank(reg, query, n = 25) {
     let s = 0; for (const w of words) if (q.has(w)) s += 1;
     if (s) scored.push([s / Math.sqrt(words.length + 1), e]);
   }
-  return scored.sort((a, b) => b[0] - a[0]).slice(0, n).map(x => x[1]);
+  const direct = scored.sort((a, b) => b[0] - a[0]).slice(0, Math.min(n, 24)).map(x => x[1]);
+  const out = new Map(direct.map(e => [e.key, e]));
+  // Include exact dependency/paired controls deterministically; the model should not receive an isolated value
+  // without the mode or paired input that determines whether that value is editable.
+  const addDep = d => { if (typeof d !== 'string') return; if (reg.entries.has(d)) out.set(d, reg.entries.get(d));
+    for (const [k, e] of reg.entries) if ((d.endsWith('.') && k.startsWith(d)) || k === d.replace(/\*$/, '')) out.set(k, e); };
+  for (const e of direct) for (const d of (e.depends || []).flat(Infinity)) addDep(d);
+  return [...out.values()].slice(0, n);
 }
-export const describe = (e) => ({ key: e.key, label: e.label, units: e.units, min: e.min, max: e.max, options: e.options, kind: e.kind, level: e.level,
-  value: safe(e.get), ...(e.readOnly ? { read_only: e.readOnly } : {}), ...(e.inactive ? { inactive: e.inactive } : {}) });
+export const describe = (e) => ({ key: e.key, label: e.label, description: e.description, units: e.units, min: e.min, max: e.max, options: e.options, kind: e.kind,
+  level: e.level, target: e.target, dependencies: e.depends || [], value: safe(e.get), ...(e.readOnly ? { read_only: e.readOnly } : {}), ...(e.inactive ? { inactive: e.inactive } : {}) });
 function safe(f) { try { const v = f(); return typeof v === 'number' ? +v.toFixed(4) : v; } catch (e) { return null; } }
 
 // ------------------------------------------------------------------ coverage: every editable control in the DOM must be registered

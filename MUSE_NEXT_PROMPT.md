@@ -7,7 +7,7 @@ and `outputs`) and paste the latest `check.py` summary underneath it.
 
 Attached is the current working project (zip) and the latest `python check.py` summary.
 It passes 22 tests. A slider rebuild takes about 0.2 s, and an export about 0.15 s.
-Fixes are marked `FIX` and are described in REPORT.md. Read REPORT.md first.
+Fixes by Claude are marked `FIX (Claude)` and are described in REPORT.md. Read REPORT.md first.
 
 ## Rules (each was broken in an earlier milestone)
 
@@ -79,7 +79,7 @@ them.
 8. **Sliders:** realism toggle, twist, tear severity, tear location, obliquity and retraction.
 9. **Tests:** old fixtures unchanged; bundles inside the overall ACL; the stump gap matches
    the retraction; cut faces are closed meshes (watertight).
-10. Describe what `tools/render.py` should show from 3 angles. We will check the pictures.
+10. Describe what `tools/render.py` should show from 3 angles. Claude will check the pictures.
 
 ## Milestone B: repair-bridge scaffold (T4)
 

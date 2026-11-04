@@ -1,4 +1,4 @@
-// N3 design page. Written by Muse (N3). Fixes are marked "FIX".
+// N3 design page. Written by Muse (N3). Fixes by Claude are marked "FIX (Claude)".
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -18,7 +18,7 @@ function getPath(obj, path, create) {
   }
   const ks = path.split('.'); let o = obj;
   for (let i = 0; i < ks.length - 1; i++) {
-    if (o[ks[i]] == null) { if (!create) return null; o[ks[i]] = {}; }  // FIX: crashed on missing parents
+    if (o[ks[i]] == null) { if (!create) return null; o[ks[i]] = {}; }  // FIX (Claude): crashed on missing parents
     o = o[ks[i]];
   }
   return { o, k: ks[ks.length - 1] };
@@ -41,7 +41,7 @@ function init3() {
   $('view').appendChild(ren.domElement);
   ctl = new OrbitControls(cam, ren.domElement); ctl.enableDamping = true;
   loader = new GLTFLoader();
-  // FIX: Muse's scene had no lights, so every (PBR) mesh rendered black.
+  // FIX (Claude): Muse's scene had no lights, so every (PBR) mesh rendered black.
   scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 1.6));
   const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(60, 100, 80); scene.add(key);
   const rim = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(-80, 40, -60); scene.add(rim);
@@ -100,11 +100,11 @@ async function doBuild() {
     const gltf = await loader.parseAsync(bin.buffer, '');
     if (modelRoot) scene.remove(modelRoot);
     modelRoot = gltf.scene;
-    // FIX: the GLB is in metres; scale to mm so the camera distances make sense.
+    // FIX (Claude): the GLB is in metres; scale to mm so the camera distances make sense.
     modelRoot.scale.setScalar(1000);
     modelRoot.rotation.x = -Math.PI / 2;
     scene.add(modelRoot); applyTogs();
-    if (!framed) { setCam('q34'); framed = true; }  // FIX: camera was never pointed at the first model
+    if (!framed) { setCam('q34'); framed = true; }  // FIX (Claude): camera was never pointed at the first model
     renderChecks(j.checks, j.summary);
     const s = j.summary;
     $('sum').textContent = `crossings ${s.nevents} · strand gap ${fmt(s.gap_mm, 2)} mm · sticks out ${fmt(Math.max(0, s.penetration_mm), 2)} mm · tightest bend R ${fmt(1 / s.kmax, 2)} mm`;
@@ -116,7 +116,7 @@ async function doBuild() {
 }
 function fmt(v, n) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(n) : '–'; }
 
-// FIX: Muse wrote hints.json but the page never used it; checks showed raw JSON.
+// FIX (Claude): Muse wrote hints.json but the page never used it; checks showed raw JSON.
 function hintFor(c, summary) {
   let tpl = hints[c.check_id];
   if (!tpl && c.check_id.startsWith('fiber_length')) tpl = hints.fiber_length;
@@ -192,7 +192,7 @@ function applySlider(s, v) {
   if (s.kind === 'toggle') {
     const opt = s.options[Number(v)];  // Milestone A: general toggle (was side-only)
     writeVal(slot, opt);
-    if (s.path === 'anatomy.side' && request.measurement_conditions) request.measurement_conditions.side = opt;  // FIX: keep both sides in step
+    if (s.path === 'anatomy.side' && request.measurement_conditions) request.measurement_conditions.side = opt;  // FIX (Claude): keep both sides in step
     return;
   }
   if (s.sets_control && s.path.startsWith('zones.')) slot.o.control = s.sets_control;
@@ -209,7 +209,7 @@ async function boot() {
   pr.presets.forEach(p => { const o = document.createElement('option'); o.value = p.name; o.textContent = p.name.replace(/_/g, ' '); sel.appendChild(o); });
   const load = async name => { const j = await get('/api/design?name=' + encodeURIComponent(name)); request = j.request; buildSliders(); schedule(); };
   sel.onchange = () => load(sel.value);
-  // FIX: default to the ACL-in-knee design, whose anatomy sliders are all live.
+  // FIX (Claude): default to the ACL-in-knee design, whose anatomy sliders are all live.
   const first = pr.presets.find(p => p.name === 'acl_context_request') || pr.presets[0];
   sel.value = first.name; await load(first.name);
   $('save').onclick = async () => {

@@ -6,6 +6,7 @@ import { renderBrowser, renderImgInspector, qcPanel, evidencePanel, coveragePane
 import { buildRegistry, toolDefs, coverage } from './registry.js';
 import { Txn } from './txn.js';
 import { Muse } from './muse.js';
+import { CustomParts } from './custom_parts.js';
 import { MriUpload } from './upload.js';
 
 const $ = id => document.getElementById(id);
@@ -22,7 +23,6 @@ class Workspace {
     });
   }
   async start() {
-    // start once the designer has a design, or has decided to wait for one made from an MRI (no stock model)
     while (!(window.__app && window.__app.S.reg && (window.__app.S.state || window.__app.S.waiting))) await sleep(50);
     this.app = window.__app;
     this.app.setSceneBackground(0xe8ebee);
@@ -32,13 +32,13 @@ class Workspace {
     this.els.set('scaffold', sv); this.specs.set('scaffold', { kind: 'scaffold' });
     $('insScaf').appendChild($('side'));
     this.txn = new Txn({ app: this.app, IM: this.IM, ws: this });
+    this.custom = new CustomParts(this);
     this.muse = new Muse(this);
     this.IM.vocab = await api('/api/img/vocab').catch(() => null);
     for (const t of ['case', 'manifest', 'loaded', 'overlay', 'edit', 'annotations', 'selection', 'progress', 'tool']) this.IM.on(t, () => this.refreshSoon());
     this.IM.on('cross', () => this.refreshInspectorSoon()); this.IM.on('display', () => this.refreshInspectorSoon());
     window.addEventListener('acl:built', () => { this._reg = null; });
     window.addEventListener('acl:param', () => { this._reg = null; });
-    window.addEventListener('acl:loaded', () => { this._reg = null; this.refreshInspectorSoon(); this.afterRender(); });
     this.bindTop();
     await this.loadCases();
     this.restoreLayout();
@@ -46,7 +46,6 @@ class Workspace {
     if (last && this.cases.some(c => c.id === last)) await this.openCase(last, true);
     this.refresh();
     await this.checkReader();
-    // MRI upload lives in this page; with no design yet, ask for an MRI straight away
     this.upload = new MriUpload(this);
     window.__wsUpload = () => this.upload.open();
     if (!this.app.S.state) this.upload.open();
@@ -153,8 +152,7 @@ class Workspace {
   afterRender() {
     const mpr = this.layout.visibleViews().some(v => (this.specs.get(v) || {}).kind === 'mpr');
     const banner = $('unregBanner');
-    // only meaningful once there is a scaffold to compare with the MRI (none until an MRI has made a design)
-    if (banner) banner.hidden = !(mpr && this.layout.visibleViews().includes('scaffold') && this.app.S.state);
+    if (banner) banner.hidden = !(mpr && this.layout.visibleViews().includes('scaffold'));
     this.app.invalidate();
   }
   setInspector(which) {
@@ -200,6 +198,48 @@ class Workspace {
   registry() { if (!this._reg || this._regRev !== this.IM.manifest) { this._reg = buildRegistry({ app: this.app, IM: this.IM, ws: this }); this._regRev = this.IM.manifest; } return this._reg; }
   tools() { return toolDefs(this.registry()); }
   coverage() { this._reg = null; return coverage(this.registry()); }
+  inspectDesign(args = {}) {
+    const S = this.app.S, reg = this.registry(), query = String(args.query || 'summary').toLowerCase();
+    const params = [...reg.entries.values()].filter(e => e.param && (!args.level || e.level === Number(args.level))).map(e => {
+      let value = null; try { value = e.get(); } catch (x) { /* unavailable */ }
+      const pv = (S.state.provenance || {})[e.key] || {};
+      return { key: e.key, label: e.label, level: e.level, units: e.units, value, editable: !e.readOnly, derived: e.readOnly || null,
+        target: e.target, provenance: { status: pv.status || 'default', source: pv.source || 'template/default', evidence: pv.evidence || null } };
+    });
+    const visible = (S.scene && S.scene.objects || []).map(o => ({ id: o.id, label: o.label, level: o.level, visible: S.vis[o.id] !== false, opacity: S.opac[o.id] ?? 1 }));
+    const cam = this.app.cam(), ctl = this.app.ctl(), validity = S.scene && S.scene.validity;
+    const anns = this.IM.annotationsFor().map(a => ({ id: a.id, name: a.name || a.kind, type: a.type, value: a.value, units: a.units, status: a.status, calibrated: a.calibrated }));
+    const checks = validity ? { evaluated: true, valid: validity.valid, failed: validity.fail, warnings: validity.warn, items: (S.scene.checks || []).map(c => ({ id: c.id, label: c.label, status: c.status, message: c.message, value: c.value, threshold: c.threshold, units: c.units, params: c.params })) } : { evaluated: false };
+    const minimumWall = S.scene && S.scene.metrics && (S.scene.metrics.minimum_wall_mm ?? S.scene.metrics.min_wall_mm);
+    return { revision: this.txn.revision, request: query, case: { design: S.state.case && S.state.case.name || S.state.case || 'current design', state_id: S.stateId || null,
+        imaging: this.IM.manifest ? { id: this.IM.caseId, label: this.IM.manifest.label, synthetic: this.IM.manifest.synthetic } : null },
+      selection: { level: S.levelSel || null, component: S.compSel || null }, layout: { active_view: this.layout.activeView, views: this.layout.visibleViews(), maximized: this.layout.max || null },
+      camera: cam ? { position: cam.position.toArray().map(x => +x.toFixed(2)), target: ctl.target.toArray().map(x => +x.toFixed(2)) } : null,
+      components: this.app.COMP_DEFS.filter(c => c.id).map(c => ({ id: c.id, name: c.short, level: c.level, visible: (c.objs || [c.obj]).some(id => S.vis[id] !== false) })),
+      custom_components: this.custom.list().map(p => this.custom.describe(p)), visible_layers: visible, parameters: params,
+      measurements: anns, validation: checks,
+      calculated: { minimum_wall_thickness_mm: minimumWall == null ? { status: 'not_evaluated', next_step: 'run an implemented wall-thickness check' } : minimumWall },
+      imaging_evidence: this.IM.manifest ? { findings: this.IM.manifest.findings || [], masks: Object.values(this.IM.manifest.masks || {}).map(m => ({ id: m.id, review: m.review.status, origin: m.origin, labels: m.labels.map(l => l.name) })) } : null,
+      recent_changes: this.txn.cards.slice(-8).map(c => ({ revision: c.revision, label: c.label, status: c.status, changes: c.changes.map(x => ({ key: x.key, from: x.from, to: x.to })) })) };
+  }
+  async listVerifiedFixes() {
+    const S = this.app.S, revision = this.txn.revision, hash = S.scene && S.scene.design_hash;
+    if (!hash) throw new Error('No completed design is available for fix verification.');
+    const out = await api('/api/v2/layer_fixes', { state: S.state });
+    if (out.design_hash !== (S.scene && S.scene.design_hash) || revision !== this.txn.revision) throw new Error('The design changed while fixes were being verified; list fixes again.');
+    const map = new Map(), fixes = (out.fixes || []).filter(f => f.verified).map((f, i) => {
+      const id = `${out.design_hash}:${i}`; const item = { id, conflict: f.conflict, label: f.label, changes: f.set, new_conflicts: f.new_conflicts || [] }; map.set(id, item); return item;
+    });
+    this.verifiedFixes = { revision, design_hash: out.design_hash, map };
+    return { revision, design_hash: out.design_hash, fixes, note: fixes.length ? 'Each fix was rebuilt by the deterministic engine; applying one still triggers a full rebuild and validation.' : 'No verified single correction is available for the current design.' };
+  }
+  async resolveVerifiedFix(id) {
+    if (!this.verifiedFixes || this.verifiedFixes.revision !== this.txn.revision || this.verifiedFixes.design_hash !== (this.app.S.scene && this.app.S.scene.design_hash)) await this.listVerifiedFixes();
+    const all = [...this.verifiedFixes.map.values()];
+    const fix = id ? this.verifiedFixes.map.get(id) : all.length === 1 ? all[0] : null;
+    if (!fix) throw new Error(id ? 'That verified fix is stale or unknown; list fixes again.' : all.length ? 'Several verified fixes are available; choose one by its fix id.' : 'No verified fix is available for the current design.');
+    return fix;
+  }
   set(key, value) { const e = this.registry().entries.get(key); if (!e) return this.toast('unknown control ' + key, 'err'); try { e.set(value); } catch (x) { this.toast(x.message, 'err'); } this.refreshInspectorSoon(); }
   async act(name, args) {
     const a = this.registry().actions.get(name);
@@ -219,6 +259,17 @@ class Workspace {
     await this.loadCases(); await this.openCase(c.id);
     const sag = this.IM.imageVolumes().find(v => /sagittal/i.test(v.name)); if (sag) this.IM.activeVol = sag.id;
     this.preset('mpr_scaffold');
+  }
+  async resetDemo() {
+    this.toast('Resetting the hackathon demo…');
+    const seq = this.app.S.seq;
+    await this.app.openCase('demo_complete');
+    await this.app.waitForSettled(seq, 90000);
+    await this.demoCase();
+    this.txn.reset(); this.verifiedFixes = null; this._reg = null;
+    this.custom.selected = null; this.custom.undo.length = 0; this.custom.renderGeometry(); this.custom.renderInspector();
+    this.muse.reset(); this.app.setCam('q34'); this.preset('mpr_scaffold'); this.refresh();
+    this.toast('Hackathon demo restored: synthetic evidence, valid scaffold, clean Muse history.');
   }
   async importFiles(files, opt) {
     const IM = this.IM; if (!IM.caseId) return this.toast('Open or create a case first', 'err');
@@ -258,7 +309,6 @@ class Workspace {
     catch (e) { this.reader = { ok: false, error: e.message }; }
     this.refreshInspectorSoon();
     if (this.upload) this.upload.renderReader();
-    // the server starts KneeScan itself (tools/reader_launcher.py): keep checking while it loads its models
     clearTimeout(this._readerPoll);
     if (!this.reader.ok && (this.reader.launcher || {}).state === 'starting') this._readerPoll = setTimeout(() => this.checkReader(), 3000);
   }
@@ -272,7 +322,7 @@ class Workspace {
       throw new Error(res.error ? res.error.message : 'segmentation cancelled'); }
     await IM.refresh(); await IM.selectMask(vid, res.result.mask.id);
     this.segState = { status: 'done', message: `KneeScan result stored as an editable overlay (${res.result.mask.labels.map(l => l.name).join(', ')}; 2D outline). Review it before use.` };
-    if (!this.app.S.state && res.result.kneescan) {                // no design yet: the readings build the first one
+    if (!this.app.S.state && res.result.kneescan) {
       this.segState.message += ' ' + await this.designFromKneeScan(res.result.kneescan, args && args.side, this.volName(vid));
     }
     this.refreshInspectorSoon();
@@ -285,28 +335,25 @@ class Workspace {
     if (!this.app.S.state) this.toast(await this.designFromKneeScan(result, side, filename));
   }
   volName(vid) { const v = this.IM.vols && this.IM.vols.get(vid); return (v && v.name) || 'scan'; }
-  // Knee side for a new design: the choice in the segmentation panel, else the DICOM Laterality tag.
   kneeSide(vid, side) {
     if (side === 'right' || side === 'left') return side;
     const v = this.IM.vols && this.IM.vols.get(vid), m = (v && v.meta) || {};
     const lat = String(m.Laterality || m.ImageLaterality || '').toUpperCase();
     return lat === 'R' ? 'right' : lat === 'L' ? 'left' : null;
   }
-  // KneeScan readings -> the scaffold builder (same conversion as the /upload page), then build the model.
   async designFromKneeScan(result, side, filename) {
-    const s = this.kneeSide(this.IM.activeVol, side);
-    if (!s) return 'No scaffold model yet: choose the knee side (KneeScan cannot tell left from right) and run it again.';
-    const out = await api('/api/mri/from_result', { result, side: s, filename });
+    const resolvedSide = this.kneeSide(this.IM.activeVol, side);
+    if (!resolvedSide) return 'No scaffold yet: choose the knee side and run KneeScan again.';
+    const out = await api('/api/mri/from_result', { result, side: resolvedSide, filename });
     this.app.loadState(out.state, out.state_id);
     const applied = out.mapping.filter(r => r.result === 'applied').map(r => r.reading.toLowerCase());
-    return `Scaffold model built from the readings (${s} knee; applied: ${[...new Set(applied)].join(', ') || 'none'}).` +
-      (out.length_check && out.length_check.ok === false ? ' The modeler flags the ACL length: see Checks.' : '');
+    return `Scaffold built from verified readings (${resolvedSide} knee; applied: ${[...new Set(applied)].join(', ') || 'none'}).`;
   }
   // ---------------------------------------------------------------- evidence -> scaffold (explicit mappings, one transaction)
   async applyEvidence(a) {
     const IM = this.IM, S = this.app.S;
     if (!IM.caseId) throw new Error('No imaging case is open.');
-    if (!S.state) throw new Error('No scaffold design yet: run KneeScan on this series (or upload an MRI) to build one first.');
+    if (!S.state) throw new Error('No scaffold design yet: run KneeScan on this series first.');
     const p = await api('/api/img/propose', { case: IM.caseId, params: S.state.params, provenance: S.state.provenance, scope: a.scope || null, include_assumptions: !!a.include_assumptions });
     const keep = a.keep || [], kept = k => keep.some(x => x.endsWith('*') ? k.startsWith(x.slice(0, -1)) : k === x);
     const changes = [], assumptions = [];
@@ -343,6 +390,7 @@ class Workspace {
     $('btnPresetReview').onclick = () => { try { this.preset('review'); } catch (e) { this.toast(e.message, 'err'); } };
     $('btnAddView').onclick = (e) => this.addMenu(this.layout.paneOf(this.layout.activeView) ? this.layout.paneOf(this.layout.activeView).id : 'active', e);
     $('btnMuse').onclick = () => this.muse.toggle();
+    $('btnDemoReset').onclick = () => this.resetDemo().catch(e => this.toast('Demo reset failed: ' + e.message, 'err'));
     document.querySelectorAll('#insSwitch button').forEach(b => (b.onclick = () => this.setInspector(b.dataset.ins)));
   }
 }

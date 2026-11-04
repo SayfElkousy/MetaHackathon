@@ -1,8 +1,17 @@
 # Imaging workspace and Muse controller
 
-Open `http://127.0.0.1:8000/` (the one page; `/workspace` leads there) after `python tools/server.py` (or `tools/run_workspace.sh`, which uses `.venv`
-and opens no browser tab). The scaffold designer is part of this page: the workspace loads the designer script in the
+Open `http://127.0.0.1:8000/` after `python tools/server.py` (or `tools/run_workspace.sh`, which uses `.venv`
+and opens no browser tab). This is the single MRI-first product page; `/workspace` redirects there. The workspace loads the designer script in the
 same page, so the scaffold controls, the 3D view and Muse share **one** design state.
+
+Bundlr does not preload a scaffold and imply that it belongs to a patient. Without a saved state link it opens the
+MRI upload dialog and waits for KneeScan readings. Run `python tools/setup_kneescan.py` once; the application server
+then starts and monitors that separate local reader automatically. Synthetic cases remain explicit demo fixtures.
+
+Publication-derived measurement ranges are non-blocking for MRI imports. Outlier measurements are preserved in the
+case provenance; when the current parametric anatomy cannot represent one directly, the exploratory design uses its
+attachment-derived geometry instead. File integrity, finite numeric data, and coordinate-transform validation remain
+hard requirements.
 
 Extra Python dependencies for imaging: `nibabel`, `pydicom`, `SimpleITK`, `pillow` (already in
 `mri_analysis/requirements.txt`). Tests: `pytest tests/test_imaging.py` and `node --test tests/js/test_ws.mjs`.
@@ -75,8 +84,8 @@ every coordinate transform in tested Python code.
   engine limits enforced, modes respected. Each transfer shows source series, annotation, value, units, target and
   whether it is direct or assumption-based. Not mapped (by design): coatings, grooves, channels, braid angle,
   composition, pretension, attachment *positions*.
-- **Muse**: control registry built from the live app (≈400 controls: all six scaffold levels, anatomy/injury/pose,
-  display, visibility, cutaways, sections, components, imaging, workspace; 22 actions); tool definitions generated
+- **Muse**: control registry built from the live app (all six scaffold levels, anatomy/injury/pose,
+  display, visibility, cutaways, sections, components, imaging and workspace); tool definitions generated
   from it; coverage check (0 unregistered controls at the time of testing; **Muse coverage** view). One transaction per request:
   atomic validation, one undo step, one preview + one final rebuild, slider/provenance/history updates, change
   highlight, change card with before/after, sources, assumptions, validation and separately measured interpretation /
@@ -84,6 +93,19 @@ every coordinate transform in tested Python code.
   are refused; a failed rebuild restores the previous design. "Undo that change", "Keep the geometry but restore
   the previous view", "Show which settings came from the MRI" work. Ambiguous targets and goals without an objective
   ("optimize healing") get one focused question.
+- **Fresh design inspection and grounded response loop**: current revision, case, parameters and provenance,
+  selected and visible components, layout/camera, measurements, imaging evidence, validation, custom definitions and
+  recent actions are read at execution time. Muse receives actual action results in a second response pass; state
+  questions are revision-labelled. The built-in fallback executes common edits and navigation without pretending to
+  be model inference.
+- **Parametric custom parts**: tube, curved tube, band, sleeve, channel array, strut and lattice primitives are stored
+  as editable definitions with name, purpose, dimensions, material, model-frame placement, level, assumptions and
+  relationship metadata. They appear in **Custom components**, can be renamed, repositioned, edited, duplicated,
+  focused, isolated, deleted and undone, and persist in the saved application state. Referenced parts track the
+  current target origin on rebuild. Construction is restricted to audited data definitions; arbitrary code is never run.
+- **External evidence**: a server-side PubMed E-utilities connector accepts generalized topics only, rejects patient
+  identifiers, and returns title, authors, year, journal, PMID, DOI, clickable PubMed/PMC URL, abstract passage and
+  access type. Search results are action results, never instructions, and do not modify the design automatically.
 
 ### Needs metadata or model access
 
@@ -111,6 +133,17 @@ every coordinate transform in tested Python code.
   (KneeScan produces none).
 - Contour interpolation between slices; 3D brush; per-label opacity in the 3D scaffold view.
 - Mapping MRI to microscopic structure, materials or pretension (deliberately excluded: no justified method).
+- Arbitrary custom meshes, perforation/Boolean operations, flared custom transitions and automatic design variants.
+  Path conformance, collision/intersection prevention, clearance solving, contact, fusion and bond strength are not
+  modeled. Non-independent custom parts track a target origin only, and the inspector labels that limitation.
+- Custom tube, curved-tube, band, sleeve, channel-array, strut and lattice definitions are included as physical
+  geometry in the STL workflow with their model-frame positions and rotations. Export supports full scaffold,
+  structural-level, component and custom-only selection; combined distinct-shell or separate-part packages; explicit
+  millimetre bounds; validation; optional limited face cleanup; and the recreatable design JSON. Visual grooves,
+  zero-thickness interfaces, schematic anchors and magnified display effects are listed as omitted rather than claimed
+  as printable geometry. STEP and Boolean fused-solid export remain unavailable because the engine has no validated
+  CAD-solid/Boolean kernel. Published evidence is PubMed metadata/abstract plus a PMC link when available; the app
+  does not scrape journal full text or classify study design automatically.
 
 ## Measured performance (this machine, synthetic phantom, browser pane in the background)
 
@@ -118,3 +151,8 @@ Interpretation by the built-in parser 0–7 ms; validation ≤1 ms; a 3-level sc
 rebuild 4.4 s (engine 1.2 s; the rest is network/3D update while the page was in a background pane); evidence
 transfer (length + width profile): preview 1.5 s, final 4.8 s (engine 2.1 s). Display, camera, overlay and layout
 changes do not rebuild geometry. These are single measurements, not benchmarks.
+
+A live Muse Spark connection test completed successfully, and a real model-selected sheath-wall edit completed with
+registered tool arguments, a deterministic preview/final build, passing fit checks, and a second grounded response.
+Provider latency varies and is displayed separately from validation and geometry timing. See `DEMO_RUNBOOK.md` for
+the repeatable presentation path and fallback language.

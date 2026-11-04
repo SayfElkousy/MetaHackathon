@@ -182,7 +182,9 @@ export class MriUpload {
       card('Femur → fibular head', ff && ff.value_mm != null ? fmt(ff.value_mm) + ' mm <span class="pill tiny warn">experimental</span>' + check(ff) : '—',
         ff ? (ff.value_mm != null ? `${esc(ff.value_px)} px · slice ${ff.slice + 1} · ${esc(ff.mm_source || '')}` : esc(ff.error || '')) : 'not measured (step was off)'),
     ].join('');
-    x('warn').innerHTML = (r.warnings || []).map(w => `<li>${esc(w)}</li>`).join('');
+    // Reader caveats remain in the saved provenance/QC data, but are not used
+    // as publication-derived blockers in the exploratory build workflow.
+    x('warn').innerHTML = '';
     const pill = s => `<span class="pill tiny ${s === 'applied' ? 'ok' : s === 'recorded' ? '' : 'warn'}">${esc(s)}</span>`;
     const val = row => {
       if (row.reading === 'ACL location') { const l = row.value || {}; return l.slice != null ? 'slice ' + (l.slice + 1) : '—'; }
@@ -191,11 +193,7 @@ export class MriUpload {
     const sent = row => row.sent == null ? '' : '<br><span class="mono muted">= ' + esc(Array.isArray(row.sent) ? '[' + row.sent.join(', ') + ']' : row.sent) + '</span>';
     x('map').innerHTML = '<tr><th>Reading</th><th>Value</th><th>Scaffold builder parameter</th><th>Result</th><th>Note</th></tr>' + r.mapping.map(row =>
       `<tr><td>${esc(row.reading)}</td><td class="mono">${val(row)}</td><td class="mono">${row.param ? esc(row.param) + sent(row) : '—'}</td><td>${pill(row.result)}</td><td class="muted">${esc(row.note || '')}</td></tr>`).join('');
-    const lc = r.length_check, lines = [];
-    if (lc && lc.ok === false) lines.push('⚠ The scaffold builder will flag the length: ' + esc(lc.message) +
-      (lc.achievable_mm && lc.achievable_mm.length ? ` With the current attachment positions it reaches ${lc.achievable_mm[0]}–${lc.achievable_mm[1]} mm; move a footprint centre to fit ${fmt(lc.target_mm)} mm.` : ''));
-    (r.notes || []).forEach(n => lines.push('⚠ ' + esc(n)));
-    x('lenWarn').hidden = !lines.length; x('lenWarn').innerHTML = lines.join('<br>');
+    x('lenWarn').hidden = true; x('lenWarn').innerHTML = '';
     x('res').hidden = false;
     x('build').focus();
   }

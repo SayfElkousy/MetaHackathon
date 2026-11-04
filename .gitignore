@@ -5,4 +5,5 @@ __pycache__/
 state_store/
 .DS_Store
 fixtures/imaging/
+.claude/
 .env.muse

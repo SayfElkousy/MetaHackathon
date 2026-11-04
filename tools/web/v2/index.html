@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ACL Repair Designer</title>
+<title>Bundlr — ACL Scaffold Designer</title>
 <link rel="stylesheet" href="/v2/style.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head><body>
 <header id="top">
-  <b class="brand">ACL repair designer</b>
+  <b class="brand">Bundlr</b>
   <span id="caseLabel" class="case">—</span>
   <span id="synthBadge" class="pill warn" hidden>synthetic</span>
   <span id="badge" class="pill">starting</span>
@@ -15,11 +15,11 @@
   <span id="viewMode" role="group" aria-label="View mode">
     <button id="btnViewAnat" class="seg on" title="Anatomy view: scaffold inside the knee">Anatomy view</button><button id="btnViewBuilder" class="seg" title="Scaffold Builder: the scaffold by itself, with structural components">Scaffold Builder</button>
   </span>
-  <button id="btnUpload" title="Upload an MRI scan: the MRI reader measures it and the readings build the scaffold model">Upload MRI</button>
+  <button id="btnUpload" title="Upload an MRI scan: the MRI reader measures it and the readings build a model">Upload MRI</button>
   <button id="btnCases" title="Open a case or import MRI-analysis output">Open / import</button>
   <button id="btnNewTab" title="Open this model in a separate viewer tab">Open in new tab</button>
   <button id="btnLink" title="Copy a link that restores this exact model">Copy link</button>
-  <button id="btnExport" title="Download geometry, parameters, provenance and history (zip)">Export</button>
+  <button id="btnExport" title="Export the current scaffold geometry as binary STL in millimetres">Export</button>
 </header>
 <main id="main">
   <section id="stage">
@@ -149,6 +149,29 @@
 </dialog>
 <dialog id="conflictDlg"><form method="dialog" class="dlg"><h3>New upstream values for parameters you edited</h3><div id="conflicts"></div>
   <div class="row end"><button value="ok" class="primary">Apply choices</button></div></form></dialog>
+<dialog id="exportDlg">
+  <form method="dialog" class="dlg exportdlg">
+    <div class="export-title"><div><h3>STL for printing / CAD import</h3><p>Build from an immutable snapshot of the current engine geometry.</p></div><button value="cancel" aria-label="Close export dialog">×</button></div>
+    <div class="export-grid">
+      <label><span>Contents</span><select id="exportScope"><option value="entire">Entire scaffold</option><option value="components">Selected components</option><option value="levels">Selected structural levels</option><option value="custom">Custom components only</option></select></label>
+      <label><span>Packaging</span><select id="exportMode"><option value="combined">Combined assembly · distinct shells</option><option value="separate">Separate STL files · shared coordinates</option><option value="fused" disabled>Fused solid · unavailable (no Boolean kernel)</option></select></label>
+      <label><span>Geometry detail</span><select id="exportDetail"><option value="draft">Draft · 0.15 mm tolerance</option><option value="standard" selected>Standard · 0.06 mm tolerance</option><option value="high">High · 0.025 mm tolerance</option><option value="custom">Custom tolerance</option></select></label>
+      <label id="exportTolWrap" hidden><span>Custom tolerance</span><span class="withunit"><input id="exportTolerance" type="number" min="0.005" max="0.5" step="0.005" value="0.06"><small>mm</small></span></label>
+    </div>
+    <fieldset id="exportLevels"><legend>Structural levels</legend><div class="export-levels"><label><input type="checkbox" value="1" checked> L1 coating</label><label><input type="checkbox" value="2" checked> L2 grooves</label><label><input type="checkbox" value="3" checked> L3 channels</label><label><input type="checkbox" value="4" checked> L4 braid</label><label><input type="checkbox" value="5" checked> L5 sheath</label><label><input type="checkbox" value="6" checked> L6 ends</label></div></fieldset>
+    <fieldset id="exportComponentField"><legend>Components</legend><div id="exportComponents" class="export-components"><span class="muted">Inspecting current geometry…</span></div></fieldset>
+    <details class="export-advanced"><summary>Validation, repair and process profile</summary>
+      <div class="export-grid"><label><span>Minimum wall entered for process</span><span class="withunit"><input id="exportMinWall" type="number" min="0" step="0.01" placeholder="not assessed"><small>mm</small></span></label>
+      <label><span>Minimum opening entered for process</span><span class="withunit"><input id="exportMinOpening" type="number" min="0" step="0.01" placeholder="not assessed"><small>mm</small></span></label></div>
+      <label class="export-check"><input id="exportRepair" type="checkbox"> Create an optional repaired copy by removing only degenerate and duplicate faces</label>
+      <label class="export-check"><input id="exportCenter" type="checkbox"> Center each separate part independently (off preserves shared assembly coordinates)</label>
+    </details>
+    <div class="export-unit"><b>Millimetres</b><span>Exported in millimeters. Select millimeters when importing into your slicer or CAD software. Coordinates are never resized to fit a printer.</span></div>
+    <div id="exportSummary" class="export-summary" aria-live="polite">Choose a scope, then inspect the export.</div>
+    <p class="export-cad">STL is a triangulated mesh. It does not preserve parametric sliders, construction history, material assignments, or editable CAD features. The package includes <code>design.json</code> for recreation in this application.</p>
+    <div class="row end"><button value="cancel">Cancel</button><button id="btnExportInspect" type="button">Inspect selection</button><button id="btnExportDownload" type="button" class="primary" disabled>Download STL package</button></div>
+  </form>
+</dialog>
 <script>
 // If the 3D library (three.js from cdn.jsdelivr.net) cannot load, the module never runs:
 // say so instead of leaving an unexplained empty canvas.

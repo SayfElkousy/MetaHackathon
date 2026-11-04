@@ -33,6 +33,9 @@ export function keepPrefixes(text, reg) {
   while ((m = re.exec(text))) {
     const words = m[1].toLowerCase().split(/\s+/);
     let hit = false;
+    if (/\b(patient|anatomy|anatomical)\b/i.test(m[1])) { for (const e of reg.entries.values()) if (e.param && e.level === 0) out.add(e.key); hit = true; }
+    if (/\b(microscopic|microstructure)\b/i.test(m[1])) { for (const e of reg.entries.values()) if (e.param && e.level >= 1 && e.level <= 4) out.add(e.key); hit = true; }
+    if (/\bpl\b.*\b(mantle|braid|reinforcement)\b/i.test(m[1])) { for (const e of reg.entries.values()) if (e.param && (/\.pl\./.test(e.key) || /\bPL\b/.test(e.label))) out.add(e.key); hit = true; }
     for (const w of words) if (PREFIX_WORDS[w]) { out.add(PREFIX_WORDS[w] + '*'); hit = true; }
     const lv = m[1].match(/level\s*(\d)/i);
     if (lv) for (const e of reg.entries.values()) if (e.param && e.level === Number(lv[1])) { out.add(e.key); hit = true; }
@@ -66,7 +69,7 @@ export function resolve(reg, phrase, filter) {
     s = s / q.length - 0.01 * W.size;
     // the user's phrase matching the control's own label is the strongest signal
     const lab = tok(e.label.replace(/\(.*?\)/g, '')).join(' '), ph = q.join(' ');
-    if (lab === ph) s += 1; else if (lab.startsWith(ph) || lab.includes(ph)) s += 0.5; else if (ph.includes(lab) && lab.length > 3) s += 0.4;
+    if (lab === ph) s += 1; else if (lab.startsWith(ph)) s += 0.68; else if (lab.includes(ph)) s += 0.42; else if (ph.includes(lab) && lab.length > 3) s += 0.4;
     if (e.inactive) s -= 0.1;                      // prefer controls that currently affect the design
     scored.push({ e, s });
   }
@@ -84,6 +87,10 @@ export function parse(text, reg, ctx = {}) {
   const keep = keepPrefixes(t, reg);
   const action = (name, args) => calls.push({ name, args: args || {} });
   // ---------------- goals without a defined objective
+  if (has(low, /\bdiagnos(?:e|is|tic)\b/)) {
+    action('ask_user', { question: 'I cannot diagnose MRI or infer clinical findings. I can inspect verified measurements, loaded annotations, segmentation provenance, quality-control flags, or the current scaffold design. Which should I show?' });
+    return { calls, notes };
+  }
   if (has(low, /\b(optimi[sz]e|maximi[sz]e|improve|best)\b.*\b(heal|healing|regenerat|integration|outcome|strength)/)) {
     action('ask_user', { question: 'Healing has no defined objective or validated model in this workspace. Which parameter should change, and to what value or target (for example a channel lumen in µm, or a sheath wall in mm)?' });
     return { calls, notes };
@@ -91,6 +98,60 @@ export function parse(text, reg, ctx = {}) {
   // ---------------- undo / restore view
   if (has(low, /\bkeep the geometry\b.*\b(restore|previous|earlier)\b.*\bview\b|\brestore the (previous|earlier) view\b/)) { action('design.restore_view'); return { calls, notes }; }
   if (has(low, /^\s*undo\b|\bundo (that|the last|my last|the previous)\b/)) { action('design.undo_last'); return { calls, notes }; }
+  if (has(low, /\b(list|show)\b.*\bverified (?:fit )?(?:fix|fixes|corrections?)\b/)) { action('design.list_verified_fixes'); return { calls, notes }; }
+  if (has(low, /\bapply\b.*\b(?:selected )?verified (?:fit )?(?:fix|correction)\b/)) { action('design.apply_verified_fix', {}); return { calls, notes }; }
+  // ---------------- physical STL export (same validated pipeline as toolbar)
+  if (has(low, /\b(export(?:ing)?|download|stl|cad import)\b/)) {
+    const mode = /\b(each|individual|separate)\b.*\b(component|part|file)|\bseparate (?:files|parts)\b/.test(low) ? 'separate' : 'combined';
+    let scope = 'entire', component_ids = [], levels = [];
+    if (/\b(custom|user[- ]defined) (?:components?|parts?)\b/.test(low)) scope = 'custom';
+    const lm = [...low.matchAll(/\blevel\s*([1-6])\b/g)].map(x => Number(x[1]));
+    if (lm.length) { scope = 'levels'; levels = [...new Set(lm)]; }
+    if (/\b(outer )?sheath\b/.test(low) && /\bonly\b/.test(low)) { scope = 'components'; component_ids = ['sheath']; }
+    if (/\b(am|anteromedial)\b.*\b(mantle|braid)\b.*\bonly\b/.test(low)) { scope = 'components'; component_ids = ['mantle_am']; }
+    if (/\b(pl|posterolateral)\b.*\b(mantle|braid)\b.*\bonly\b/.test(low)) { scope = 'components'; component_ids = ['mantle_pl']; }
+    const args = { scope, mode, detail: /\bhigh detail\b/.test(low) ? 'high' : /\bdraft\b/.test(low) ? 'draft' : 'standard', component_ids, levels };
+    if (/\b(explain|show)\b.*\b(export )?(warning|warnings)\b/.test(low)) action('export.explain_warnings', args);
+    else if (/\b(check|inspect|validate|validation)\b/.test(low) && !/\b(download|generate)\b/.test(low)) action('export.inspect', args);
+    else action('export.download', args);
+    return { calls, notes };
+  }
+  // ---------------- fresh design inspection / grounded questions
+  const designQuestion = /\?\s*$/.test(t) || /^(?:inspect|review|explain|why|what|which|how|are|is|tell me|show me (?:the )?current)\b/.test(low);
+  if (designQuestion && has(low, /\b(what is|what are|which|how does|how do|are any|current|thinnest|minimum wall|not been performed|not performed|changed)\b/) &&
+      has(low, /\b(channel|braid|reinforcement|sheath|wall|design|parameter|value|component|check|fit|invalid|failure|measurement|mri|attachment|material)\b/)) {
+    action('design.inspect', { query: t });
+    if (!has(low, /\b(evidence|literature|research|stud(?:y|ies)|published|pubmed)\b/)) return { calls, notes };
+  }
+  // ---------------- external evidence (generalized concepts only)
+  if (has(low, /\b(evidence|literature|research|stud(?:y|ies)|published|pubmed)\b/)) {
+    const topic = /channel|pore/.test(low) ? 'ACL scaffold channel diameter pore size tissue engineering' :
+      /braid|reinforcement/.test(low) ? 'braided ligament scaffold reinforcement mechanical bench study' :
+      /attachment|flare|insertion/.test(low) ? 'ACL scaffold bone attachment graded interface tissue engineering' :
+      /sheath/.test(low) ? 'ligament tissue engineering scaffold sheath permeability' : 'ACL tissue engineering scaffold design';
+    action('research.search', { query: topic, limit: 5 });
+    return { calls, notes };
+  }
+  // ---------------- custom component requests require an explicit construction and dimensions
+  if (has(low, /\b(add|create|make|insert)\b.*\b(sleeve|band|tube|channel array|strut|lattice|custom component)\b/)) {
+    const op = /channel array/.test(low) ? 'channel_array' : /curved.*tube/.test(low) ? 'curved_tube' : (low.match(/\b(sleeve|band|tube|strut|lattice)\b/) || [])[1];
+    const length = low.match(/(?:length|long)\s*(?:of|=|to)?\s*(\d+(?:\.\d+)?)\s*mm/);
+    const diameter = low.match(/(?:diameter|wide|width)\s*(?:of|=|to)?\s*(\d+(?:\.\d+)?)\s*mm/);
+    const wall = low.match(/wall(?: thickness)?\s*(?:of|=|to)?\s*(\d+(?:\.\d+)?)\s*mm/);
+    const pos = low.match(/(?:at|position(?:ed)?(?: at)?)\s*\[?\s*(-?\d+(?:\.\d+)?)\s*[, ]+\s*(-?\d+(?:\.\d+)?)\s*[, ]+\s*(-?\d+(?:\.\d+)?)\s*\]?\s*mm/);
+    const independent = /\bindependent\b/.test(low);
+    if (!op || !length || (!diameter && !/lattice/.test(op)) || !pos || !independent) {
+      action('ask_user', { question: `I can create tube, curved_tube, band, sleeve, channel_array, strut, or lattice parts. What operation, length in mm, width/diameter in mm, and model-frame position or attachment target should I use?` });
+      return { calls, notes };
+    }
+    const dimensions = { length_mm: Number(length[1]) };
+    if (diameter) { dimensions.outer_diameter_mm = Number(diameter[1]); dimensions.width_mm = Number(diameter[1]); }
+    if (wall) dimensions.wall_mm = Number(wall[1]);
+    action('custom.create', { name: `Custom ${op.replace(/_/g, ' ')}`, purpose: 'User-requested scaffold component', operation: op,
+      dimensions, position_mm: [Number(pos[1]), Number(pos[2]), Number(pos[3])], relationship: { mode: 'independent', target: null },
+      assumptions: ['Position is interpreted in the scaffold model frame.'] });
+    return { calls, notes };
+  }
   // ---------------- sources / provenance
   if (has(low, /\bwhich (measurements?|settings?|values?|parameters?)\b.*\b(used|came from|come from|from the (mri|report|scan))\b|\bshow (the )?(sources|provenance)\b/)) { action('evidence.show_sources'); return { calls, notes }; }
   // ---------------- segmentation (must call the configured service)
@@ -143,6 +204,7 @@ export function parse(text, reg, ctx = {}) {
     else if (new RegExp(`\\bshow (the )?${w}\\b`).test(low)) calls.push(setc(k, true));
   }
   const cv = low.match(/\b(anterior|posterior|medial|lateral|superior)\b (?:camera )?view\b/); if (cv) action('camera.view', { preset: cv[1] });
+  if (has(low, /\b(?:show|open)\b.*\bmidpoint\b.*\bsagittal (?:section|cross[- ]section)\b/)) { calls.push(setc('display.section_kind', 'sagittal')); calls.push(setc('display.section_s', 0.5)); }
   const lvl = low.match(/\b(isolate|highlight|select|show)\b (?:scaffold )?level (\d)\b/);
   if (lvl) { calls.push(setc('view.level', +lvl[2])); calls.push(setc('view.level_mode', lvl[1] === 'isolate' ? 'isolate' : 'highlight')); }
   // ---------------- generic parameter edits: "set <control> to <number><unit>", "increase <control> by 10%"

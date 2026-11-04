@@ -1,4 +1,4 @@
-// ACL repair designer / viewer (v2).
+// Bundlr ACL scaffold designer / viewer (v2).
 //
 // Rendering-bug fix (see docs/V2_REPORT.md): the old page measured the model's
 // bounds with Box3.expandByObject() right after adding a root that was scaled
@@ -1207,11 +1207,11 @@ async function build(quality) {
     if (e.status === 422 && e.body && e.body.errors) {
       S.msgs = {}; e.body.errors.forEach(x => (S.msgs[x.param] = S.msgs[x.param] || []).push({ level: 'fail', text: x.message }));
       refreshMessages();
-      if (!S.scene) showErr('The design has invalid values', e.body.errors.map(x => x.param + ': ' + x.message).join('\n'), [['Reset all to imported/default', resetAll], ['Upload another MRI', openUpload]]);
+      if (!S.scene) showErr('The design has invalid values', e.body.errors.map(x => x.param + ': ' + x.message).join('\n'), [['Reset all to imported/default', resetAll], ['Open a demo case', () => openCase('demo_complete')]]);
       else $('timing').textContent = 'not rebuilt: fix the highlighted values';
       return;
     }
-    showErr('Could not build the model', String(e.message) + '\nThe previous model stays on screen if there was one.', [['Retry', () => build('full')], ['Upload another MRI', openUpload]]);
+    showErr('Could not build the model', String(e.message) + '\nThe previous model stays on screen if there was one.', [['Retry', () => build('full')], ['Open a demo case', () => openCase('demo_complete')]]);
     return;
   }
   if (seq !== S.seq) return;                       // a newer request exists: drop this stale result
@@ -2916,37 +2916,99 @@ function waitForSettled(afterSeq, timeoutMs) {
     tick();
   });
 }
-$('btnExport').onclick = async () => {
-  // Exports always use the latest completed, validated full design — never a
-  // simplified preview or a stale model.
-  $('btnExport').disabled = true; $('btnExport').textContent = 'Exporting…';
+function exportOptions(overrides) {
+  const num = id => $(id).value === '' ? null : Number($(id).value);
+  const opts = {
+    scope: $('exportScope').value, mode: $('exportMode').value, detail: $('exportDetail').value,
+    tolerance_mm: $('exportDetail').value === 'custom' ? num('exportTolerance') : null,
+    levels: [...$('exportLevels').querySelectorAll('input:checked')].map(x => Number(x.value)),
+    component_ids: [...$('exportComponents').querySelectorAll('input:checked')].map(x => x.value),
+    repair: $('exportRepair').checked, center_parts: $('exportCenter').checked,
+    process_profile: { minimum_wall_mm: num('exportMinWall'), minimum_opening_mm: num('exportMinOpening') },
+    revision: window.__ws && window.__ws.txn ? window.__ws.txn.revision : (S.state.history || []).length,
+  };
+  return Object.assign(opts, overrides || {});
+}
+function renderExportComponents(parts) {
+  const host = $('exportComponents'), checked = new Set([...host.querySelectorAll('input:checked')].map(x => x.value));
+  host.innerHTML = '';
+  for (const p of parts) {
+    const label = document.createElement('label'), input = document.createElement('input'); input.type = 'checkbox'; input.value = p.id;
+    input.checked = !S.exportCatalogRendered || checked.has(p.id); input.onchange = invalidateExportInspection;
+    const text = document.createElement('span'); text.textContent = p.label || p.id;
+    const small = document.createElement('small'); small.textContent = `${p.source}${p.level ? ' · L' + p.level : ''}`; text.appendChild(small);
+    label.append(input, text); host.appendChild(label);
+  }
+  S.exportCatalogRendered = true;
+}
+function renderExportSummary(j) {
+  const host = $('exportSummary'), dims = j.bounds_mm.dimensions.map(x => Number(x).toFixed(2));
+  const checks = (j.validation.components || []).flatMap(x => x.checks || []);
+  const count = s => checks.filter(x => x.status === s).length;
+  host.innerHTML = `<h4>${j.components.length} physical component${j.components.length === 1 ? '' : 's'} included</h4>
+    <div class="export-stats"><div class="export-stat"><span>Bounds</span><b>${dims.join(' × ')} mm</b></div><div class="export-stat"><span>Triangles</span><b>${Number(j.triangle_count).toLocaleString()}</b></div><div class="export-stat"><span>Est. STL</span><b>${(j.estimated_binary_stl_bytes / 1048576).toFixed(1)} MB</b></div><div class="export-stat"><span>Snapshot</span><b>rev ${j.revision == null ? '—' : j.revision}</b></div></div>`;
+  const list = document.createElement('div'); list.className = 'export-selected'; list.textContent = j.components.map(x => x.label || x.id).join(' · '); host.appendChild(list);
+  const val = document.createElement('p'); val.innerHTML = `<b>Mesh checks:</b> <span class="export-status-pass">${count('passed')} passed</span> · <span class="export-status-warning">${count('warning')} warnings</span> · <span class="export-status-failed">${count('failed')} failed</span> · ${count('not evaluated')} not evaluated`; host.appendChild(val);
+  if (j.mode === 'combined' && j.components.length > 1) { const p = document.createElement('p'); p.className = 'warn'; p.textContent = 'Combined assembly keeps distinct shells. It is not a fused solid.'; host.appendChild(p); }
+  if (j.omitted_display_only_features.length) { const d = document.createElement('details'); d.open = true; const s = document.createElement('summary'); s.textContent = `${j.omitted_display_only_features.length} selected display-only feature(s) omitted from STL`; d.appendChild(s); const ul = document.createElement('ul'); for (const x of j.omitted_display_only_features) { const li = document.createElement('li'); li.textContent = `${x.id}: ${x.reason}`; ul.appendChild(li); } d.appendChild(ul); host.appendChild(d); }
+  const mp = document.createElement('p'); mp.textContent = j.manufacturing.message; host.appendChild(mp);
+}
+function invalidateExportInspection() { $('btnExportDownload').disabled = true; $('exportSummary').textContent = 'Selection changed. Inspect again before downloading.'; }
+function updateExportScope() {
+  $('exportLevels').hidden = $('exportScope').value !== 'levels';
+  $('exportComponentField').hidden = $('exportScope').value !== 'components';
+  invalidateExportInspection();
+}
+async function inspectExport(overrides) {
+  const btn = $('btnExportInspect'); btn.disabled = true; btn.textContent = 'Inspecting…'; $('exportSummary').classList.remove('export-status-failed'); $('exportSummary').textContent = 'Building and validating an immutable geometry snapshot…';
   try {
-    if (S.dirty || S.building || !S.scene || S.scene.quality !== 'full') {
-      $('timing').textContent = 'finalizing the model before export…';
-      const s0 = S.seq;
-      scheduleBuild('full', 0);
-      await waitForSettled(s0);
-    }
-    const v = S.scene && S.scene.validity;
-    if (!v || !v.valid) {
-      $('timing').textContent = `export blocked: the design is not valid (${v ? v.fail : '?'} failed checks) — see Checks, or restore the last valid design`;
-      showTab('checks');
-      return;
-    }
-    if (S.scene.design_hash !== S.lastFullHash) {
-      $('timing').textContent = 'export blocked: the model changed during finalizing — try Export again';
-      return;
-    }
-    const r = await fetch('/api/v2/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: S.state }) });
-    if (!r.ok) throw new Error((await r.json()).error);
-    const b = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'acl_scaffold_' + r.headers.get('X-Design-Hash') + '.zip'; a.click();
-    $('timing').textContent = 'exported validated design ' + r.headers.get('X-Design-Hash');
-  } catch (e) { $('timing').textContent = 'export failed: ' + e.message; }
-  $('btnExport').disabled = false; $('btnExport').textContent = 'Export';
-};
-if (VIEW_MODE) { $('btnNewTab').textContent = 'Open workspace'; $('btnNewTab').onclick = () => window.open('/?state=' + (S.stateId || ''), '_blank'); $('btnCases').hidden = true; $('btnUpload').hidden = true; document.querySelector('#tabs button[data-tab=design]').hidden = true; showTab('inspect'); }
+    const options = exportOptions(overrides), snapshot = JSON.parse(JSON.stringify(S.state));
+    const r = await fetch('/api/v2/export/inspect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: snapshot, options }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || 'export inspection failed');
+    if (!S.exportCatalog || options.scope === 'entire') { S.exportCatalog = j.components; renderExportComponents(S.exportCatalog); }
+    renderExportSummary(j); S.exportInspection = { options, summary: j }; $('btnExportDownload').disabled = !j.ok; return j;
+  } catch (e) { $('exportSummary').textContent = e.message; $('exportSummary').classList.add('export-status-failed'); $('btnExportDownload').disabled = true; throw e; }
+  finally { btn.disabled = false; btn.textContent = 'Inspect selection'; }
+}
+async function downloadExport(overrides) {
+  const options = overrides ? exportOptions(overrides) : (S.exportInspection && S.exportInspection.options) || exportOptions();
+  const btn = $('btnExportDownload'); btn.disabled = true; btn.textContent = 'Generating package…';
+  try {
+    // JSON serialization at request start freezes the export revision while the user may keep editing.
+    const snapshot = JSON.parse(JSON.stringify(S.state));
+    const r = await fetch('/api/v2/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state: snapshot, options }) });
+    if (!r.ok) { const j = await r.json(); throw new Error(j.error || 'export failed'); }
+    const b = await r.blob(), hash = r.headers.get('X-Design-Hash'); const url = URL.createObjectURL(b);
+    const a = document.createElement('a'); a.href = url; a.download = 'bundlr_scaffold_' + hash + '.zip'; a.textContent = `Download completed STL package (${(b.size / 1048576).toFixed(1)} MB)`; a.className = 'primary';
+    const done = document.createElement('p'); done.className = 'export-status-pass'; done.textContent = 'Package generated from snapshot ' + hash + '. '; done.appendChild(a); $('exportSummary').appendChild(done);
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 60000); $('timing').textContent = 'exported scaffold snapshot ' + hash;
+    return { text: `Generated a real STL package for design ${hash}.`, design_hash: hash, bytes: b.size, download_name: a.download };
+  } catch (e) { $('exportSummary').innerHTML += `<p class="export-status-failed">Export failed: ${e.message}</p>`; throw e; }
+  finally { btn.disabled = false; btn.textContent = 'Download STL package'; }
+}
+async function exportScaffold(options) {
+  $('exportDlg').showModal();
+  if (options) {
+    if (options.scope) $('exportScope').value = options.scope;
+    if (options.mode) $('exportMode').value = options.mode;
+    if (options.detail) $('exportDetail').value = options.detail;
+    if (options.levels) [...$('exportLevels').querySelectorAll('input')].forEach(x => x.checked = options.levels.includes(Number(x.value)));
+  }
+  await inspectExport(options);
+  return downloadExport(options);
+}
+$('btnExport').onclick = async () => { $('exportDlg').showModal(); S.exportCatalog = null; S.exportCatalogRendered = false; $('exportScope').value = 'entire'; updateExportScope(); await inspectExport().catch(() => {}); };
+$('btnExportInspect').onclick = () => inspectExport().catch(() => {});
+$('btnExportDownload').onclick = () => downloadExport().catch(() => {});
+$('exportDetail').onchange = () => { $('exportTolWrap').hidden = $('exportDetail').value !== 'custom'; invalidateExportInspection(); };
+$('exportScope').addEventListener('change', updateExportScope);
+for (const id of ['exportMode', 'exportTolerance', 'exportMinWall', 'exportMinOpening', 'exportRepair', 'exportCenter']) $(id).addEventListener('change', invalidateExportInspection);
+for (const x of $('exportLevels').querySelectorAll('input')) x.addEventListener('change', invalidateExportInspection);
+if (VIEW_MODE) { $('btnNewTab').textContent = 'Open designer'; $('btnNewTab').onclick = () => window.open('/?state=' + (S.stateId || ''), '_blank'); $('btnCases').hidden = true; document.querySelector('#tabs button[data-tab=design]').hidden = true; showTab('inspect'); }
 
 function afterLoad() {
+  S.waiting = false;
+  if (typeof NEEDS_DESIGN !== 'undefined') NEEDS_DESIGN.forEach(k => { if ($(k)) $(k).disabled = false; });
   S.undoStack.length = 0; S.redoStack.length = 0; S.gesture = null; refreshUndoButtons();
   const st = S.state;
   st.display = Object.assign({}, S.reg.display_defaults, st.display || {});
@@ -2972,21 +3034,20 @@ async function boot() {
       let local = null; try { local = JSON.parse(localStorage.getItem('acl.v2.current') || 'null'); } catch (x) { /* ignore */ }
       showErr('This saved model is not available', `The link refers to model "${id}", which this server does not have (${e.message}). ` +
         'It may come from another computer, or the state store was cleared.', [
-        ['Upload an MRI', openUpload],
-        ...(local ? [['Open my last design in this browser', () => { history.replaceState(null, '', location.pathname); loadState(local); }]] : []),
+        ['Open the synthetic demo', () => { history.replaceState(null, '', location.pathname); openCase('demo_complete'); }],
+        ...(local ? [['Open my last design in this browser', () => { history.replaceState(null, '', location.pathname); S.state = local; afterLoad(); persist(); }]] : []),
         ['Choose a case…', async () => { await renderCases(); $('caseDlg').showModal(); }]]);
       return;
     }
   } else {
-    // No stock model: the scaffold builder waits for a design made from an uploaded MRI (KneeScan readings).
     return waitForMri();
   }
   afterLoad(); persist();
 }
 
-// ------------------------------------------------------------------ waiting for an MRI (no preloaded model)
-const WS_MODE = !!document.getElementById('wsMain');      // the workspace page (the one page) hosts this script
-// The MRI upload is a dialog in the workspace; elsewhere (the /view pop-out) go to the workspace.
+// The root workspace is MRI-first: no stock scaffold is silently presented as
+// patient-specific. Synthetic cases remain available through Open and Reset demo.
+const WS_MODE = !!document.getElementById('wsMain');
 function openUpload() { if (window.__wsUpload) window.__wsUpload(); else (window.top || window).location.href = '/'; }
 if ($('btnUpload')) $('btnUpload').onclick = openUpload;
 const NEEDS_DESIGN = ['btnExport', 'btnLink', 'btnNewTab', 'btnUndo', 'btnRedo', 'btnResetAll'];
@@ -2999,23 +3060,18 @@ function waitForMri() {
   NEEDS_DESIGN.forEach(k => { if ($(k)) $(k).disabled = true; });
   $('caseLabel').textContent = 'No MRI loaded'; badge('waiting for MRI', 'warn');
   let local = null; try { local = JSON.parse(localStorage.getItem('acl.v2.current') || 'null'); } catch (e) { /* ignore */ }
-  const how = WS_MODE
-    ? 'Upload a knee MRI, or import a series in the Imaging panel and run KneeScan on it.'
-    : 'Upload a knee MRI.';
   showErr('Waiting for an MRI',
-    'No model is shown until a scan has been analysed: KneeScan finds the ACL, checks it for a tear (MONAI ensemble) and ' +
-    'outlines and measures it (MedSAM). Its readings then go to the scaffold builder, which builds the model from them.\n\n' + how, [
+    'No patient-specific scaffold is shown until a scan has been analysed. Upload a knee MRI, or import a series and run KneeScan from the Imaging panel.', [
       ['Upload MRI', openUpload],
       ...(fromMri(local) ? [['Reopen my last MRI design: ' + ((local.case && local.case.label) || 'unnamed'), () => loadState(local)]] : [])]);
   $('ovActions').firstChild.classList.add('primary');
 }
-// Load a design (from an MRI upload or the workspace's own KneeScan run) and build it.
 function loadState(state, id) {
   S.state = state; S.stateId = id || null; S.waiting = false; S.firstFramed = false; S.selection = null;
   NEEDS_DESIGN.forEach(k => { if ($(k)) $(k).disabled = false; });
   refreshUndoButtons();
   if (id) { const url = new URL(location.href); url.searchParams.set('state', id); history.replaceState(null, '', url.pathname + url.search); }
-  progress('Building the model from the MRI readings', [(state.case && state.case.label) || '']);
+  progress('Building the model from MRI readings', [(state.case && state.case.label) || '']);
   afterLoad(); persist();
   emit('acl:loaded', { id: S.stateId });
 }
@@ -3024,5 +3080,6 @@ window.__app = { loadState, waitForMri, openUpload, gestureStart, applySnap, aft
   applyAclOverlay, applyBoneOverlay, saveView, refreshLevelView, renderObjList, setSceneBackground, invalidate, COMP_DEFS, toggleLongCut, updateClip,
   refreshUndoButtons, resetParam, provOf, renderClipControls, renderSectionControls, updateSlab, matOptsFor, setClipPlanes, renderDisplayControls, rebuildSceneObjects, applyExploded, clearMatCache, renderLegend, renderData,
   cam: () => cam, ctl: () => ctl, root: () => root, objects: () => S.objects, renderSection, requestSection, S, setParam, setCam, build, perf, openCase, openDetail, showTab, scene: () => scene, renderer: () => ren, saveRemote, showGuide, focusGuide, highlightForParam, doUndo, doRedo, waitForSettled, gestureCommit,
-  setBuilder, selectComponent, fitScaffold, frameBox, toggleComp, isolateComp, focusComp, restoreBuilderView, renderCompTree, refreshObject, compDef };
+  setBuilder, selectComponent, fitScaffold, frameBox, toggleComp, isolateComp, focusComp, restoreBuilderView, renderCompTree, refreshObject, compDef,
+  inspectExport, exportScaffold, downloadExport, THREE, persist };
 boot().catch(e => showErr('Could not start the designer', String(e && e.stack || e), [['Reload', () => location.reload()]]));
