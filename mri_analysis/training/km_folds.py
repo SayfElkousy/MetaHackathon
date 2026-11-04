@@ -2,7 +2,7 @@
 series never sit on both sides of a split."""
 import json, numpy as np
 from sklearn.model_selection import StratifiedGroupKFold
-O = '/home/claude/acl_ext/km'
+O = '/home/user/acl_ext/km'
 
 
 def folds():

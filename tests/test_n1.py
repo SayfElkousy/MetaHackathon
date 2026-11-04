@@ -1,4 +1,4 @@
-"""N1 tests, written by Claude (Muse's test_n1.py was never shared).
+"""N1 tests, written here (Muse's test_n1.py was never shared).
 Checks the new functions against the v2/v3 reference values."""
 import json
 import math

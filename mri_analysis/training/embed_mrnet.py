@@ -3,12 +3,12 @@ Crop centre = external ACL localizer box centre on slice k (fallback: earlier at
 localizer box's longer side (clamped 80-170 px). The same window is used for slices k-1 and k+1.
 usage: python -I embed_mrnet.py part nparts which    which = center | sides. Resumable."""
 import sys, os, json, numpy as np
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from msam import embed
 part, nparts, which = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
-O = '/home/claude/acl_ext/emb/mrnet'
-R = json.load(open('/home/claude/acl_ext/segformer_rois.json'))
-scans = sorted(json.load(open('/home/claude/viewer/scans.json')), key=lambda s: (s['split'], s['id']))
+O = '/home/user/acl_ext/emb/mrnet'
+R = json.load(open('/home/user/acl_ext/segformer_rois.json'))
+scans = sorted(json.load(open('/home/user/viewer/scans.json')), key=lambda s: (s['split'], s['id']))
 
 
 def window(s):

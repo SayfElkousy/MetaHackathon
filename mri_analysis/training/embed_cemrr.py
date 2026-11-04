@@ -3,7 +3,7 @@ ligament fills a similar share of the input as it will on MRNet crops. Two varia
 1.8-2.6 x ACL size with random shift, (b) the same on the horizontally flipped image. Masks saved on the crop's 256 grid.
 usage: python -I embed_cemrr.py DATA_DIR OUT_DIR"""
 import sys, os, glob, json, numpy as np, torch, torch.nn.functional as Fn
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from msam import embed
 from PIL import Image
 src, out = sys.argv[1], sys.argv[2]

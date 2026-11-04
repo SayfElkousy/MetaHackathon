@@ -1,6 +1,6 @@
 """Measurements used by the N2 CLI: curvature and all-pairs strand clearance.
 
-Written by Claude to match the interface Muse's N2 code expects.
+Written to match the interface Muse's N2 code expects.
 """
 import math
 import numpy as np
@@ -39,7 +39,7 @@ def min_surface_gap(centers, s, r, d):
     arc = np.concatenate(arcs)
     tree = cKDTree(pts)
     search = 2.0 * r + 3.0 * d + 2.0
-    # FIX (Claude): vectorized; the first version looped over pairs in Python and took ~70 s.
+    # FIX: vectorized; the first version looped over pairs in Python and took ~70 s.
     pairs = tree.query_pairs(search, output_type="ndarray")
     if len(pairs) == 0:
         return {"min_surface_mm": None, "status": "no_pairs_within_search_radius"}

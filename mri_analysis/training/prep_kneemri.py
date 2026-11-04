@@ -4,7 +4,7 @@ For each volume: intensity-normalise, centre on the annotated ACL region of inte
   - three 2D slices (ROI centre slice and its neighbours) at 224 x 224 for pretrained 2D feature extractors
 usage: python -I prep_kneemri.py VOLUME_DIR METADATA_CSV OUT_DIR"""
 import sys, os, json, numpy as np, pandas as pd, torch, torch.nn.functional as Fn, warnings
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from safe_pck import load
 warnings.filterwarnings('ignore')
 vdir, mcsv, out = sys.argv[1], sys.argv[2], sys.argv[3]

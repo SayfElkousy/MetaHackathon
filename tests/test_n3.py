@@ -1,4 +1,4 @@
-"""N3 server tests (Muse), with additions by Claude marked FIX (Claude)."""
+"""N3 server tests (Muse), with additions marked FIX."""
 import base64
 import json
 import os
@@ -76,13 +76,13 @@ def test_n3_server():
             hints = json.load(f)
         for c in j["checks"]:
             cid = c["check_id"]
-            assert cid in hints or cid.startswith("fiber_length"), cid  # FIX (Claude): no "fallback" escape hatch
+            assert cid in hints or cid.startswith("fiber_length"), cid  # FIX: no "fallback" escape hatch
     finally:
         srv.shutdown()
 
 
 def test_n3_every_preset_has_every_slider():
-    # FIX (Claude): sliders silently did nothing on the 2.0.0 fixtures. /api/design now upgrades
+    # FIX: sliders silently did nothing on the 2.0.0 fixtures. /api/design now upgrades
     # field names; every slider path must exist and moving it must change the validated design.
     from acl_engine.schema import validate_request
     srv, base = _start()

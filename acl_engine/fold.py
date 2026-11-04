@@ -1,6 +1,6 @@
 """Fold (over/under) profile for the three-strand plait.
 
-Written by Claude to match the interface Muse's N2 code expects (Muse's N1
+Written to match the interface Muse's N2 code expects (Muse's N1
 version of this file was never shared). Math follows Prompt v3 section 1.3.
 
 z_i = b * g(2*phi_i), where g blends a smooth sine (sharpness q = 0) with a

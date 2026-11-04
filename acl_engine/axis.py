@@ -1,6 +1,6 @@
 """Scaffold axis C(s) and its frame, parameterized by arc length s (mm).
 
-Written by Claude to match the interface Muse's N2 code expects.
+Written to match the interface Muse's N2 code expects.
 Convention (v2 section 3 / v3 section 2.3): right-handed (N1, N2, T) with
 N1 x N2 = T. Straight axis: C = (0, s, 0), N1 = +x, N2 = -z, T = +y.
 A braid offset (x, z) maps to world as C + x*N1 - z*N2.

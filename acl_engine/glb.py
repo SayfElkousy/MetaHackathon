@@ -4,7 +4,7 @@ import struct
 import numpy as np
 from acl_engine import GEOM_KERNEL
 
-# FIX (Claude): Muse set alpha 0.6 on bones/ghost but no alphaMode, so viewers drew them
+# FIX: Muse set alpha 0.6 on bones/ghost but no alphaMode, so viewers drew them
 # solid and the scaffold was hidden inside. Colors per part also added so parts are distinguishable.
 COLORS = {
     "scaffold_strand_0": [0.89, 0.61, 0.18, 1.0],

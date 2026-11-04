@@ -4,16 +4,16 @@ is one of the quality checks. Uses slice k and, if embedded, k-1 / k+1 (picks th
 longest plausible outline).
 usage: python -I infer_mrnet.py OUT_JSON"""
 import sys, os, json, numpy as np, torch
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from msam import model as get_model
 from acl_measure import measure, largest
 from skimage import measure as skm
 outp = sys.argv[1]
-O = '/home/claude/acl_ext/emb/mrnet'
-m = get_model(); m.mask_decoder.load_state_dict(torch.load(os.environ.get('DECODER', '/home/claude/acl_ext/models/acl_decoder.pt'), weights_only=True)); m.eval()
+O = '/home/user/acl_ext/emb/mrnet'
+m = get_model(); m.mask_decoder.load_state_dict(torch.load(os.environ.get('DECODER', '/home/user/acl_ext/models/acl_decoder.pt'), weights_only=True)); m.eval()
 W = json.load(open(f'{O}/windows.json'))
-R = json.load(open('/home/claude/acl_ext/segformer_rois.json'))
-S = {f"{s['split']}_{s['id']}": s for s in json.load(open('/home/claude/viewer/scans.json'))}
+R = json.load(open('/home/user/acl_ext/segformer_rois.json'))
+S = {f"{s['split']}_{s['id']}": s for s in json.load(open('/home/user/viewer/scans.json'))}
 
 
 def to_crop(b, w):

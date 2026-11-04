@@ -7,7 +7,7 @@ from transformers import SegformerForSemanticSegmentation
 torch.set_num_threads(1)
 mdir, outp = sys.argv[1], sys.argv[2]
 m = SegformerForSemanticSegmentation.from_pretrained(mdir, num_labels=2).eval()
-scans = json.load(open('/home/claude/viewer/scans.json')); out = {}
+scans = json.load(open('/home/user/viewer/scans.json')); out = {}
 for s in scans:
     v = np.load(f"/mnt/user-data/uploads/MRNet-v1.0/{s['split']}/sagittal/{s['id']}.npy").astype(np.float32)
     k = int(s['k']); res = {}

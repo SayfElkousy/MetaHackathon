@@ -3,7 +3,7 @@ For every scan: localizer -> ACL slice + box -> tear crop -> the MONAI fold mode
 (knee side treated as unknown, as in the deployed system). Reports slice accuracy, box overlap with the hand ROI,
 and tear AUC. usage: python -I validate_e2e.py OUT_JSON"""
 import sys, os, json, time, numpy as np, pandas as pd, torch, warnings
-sys.path.insert(0, '/home/claude/kneescan_system'); sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/kneescan_system'); sys.path.insert(0, '/home/user/acl_ext')
 warnings.filterwarnings('ignore')
 from kneescan.engine import KneeScan, _norm
 from kneescan.safe_pck import load
@@ -13,18 +13,18 @@ from monai.networks.nets import resnet10
 torch.set_num_threads(2)
 outp = sys.argv[1]
 ks = KneeScan(); from transformers import SegformerForSemanticSegmentation
-ks.loc = SegformerForSemanticSegmentation.from_pretrained('/home/claude/kneescan_system/weights/acl_localizer', num_labels=2).eval()
+ks.loc = SegformerForSemanticSegmentation.from_pretrained('/home/user/kneescan_system/weights/acl_localizer', num_labels=2).eval()
 F, y, meta = folds(); fold_of = {int(i): f for f, (_, vi) in enumerate(F) for i in vi}
 models = []
 for f in range(5):
     m = resnet10(spatial_dims=3, n_input_channels=1, num_classes=1, widen_factor=0.5)
-    m.load_state_dict(torch.load(f'/home/claude/acl_ext/km/monai_s0_f{f}.pt', weights_only=True)); models.append(m.eval())
-md = pd.read_csv('/home/claude/ext_data/kneemri/metadata.csv')
+    m.load_state_dict(torch.load(f'/home/user/acl_ext/km/monai_s0_f{f}.pt', weights_only=True)); models.append(m.eval())
+md = pd.read_csv('/home/user/ext_data/kneemri/metadata.csv')
 res = json.load(open(outp)) if os.path.exists(outp) else {}
 t0 = time.time()
 for i, r in md.iterrows():
     if str(i) in res: continue
-    v = _norm(load(os.path.join('/home/claude/ext_data/kneemri/x/volumetric_data', r.volumeFilename)).astype(np.float32))
+    v = _norm(load(os.path.join('/home/user/ext_data/kneemri/x/volumetric_data', r.volumeFilename)).astype(np.float32))
     loc = ks.localize(v)
     if loc is None: res[str(i)] = dict(fail=True); continue
     xb = ks._tear_crop(v, loc['slice'], loc['box']); m = models[fold_of[i]]

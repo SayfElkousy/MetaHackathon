@@ -4,11 +4,11 @@ usage:
   python -I train_dec.py cv      -> 5-fold cross-validation by image: Dice and length/width error vs the expert outline
   python -I train_dec.py final   -> train on all 110 images, save decoder weights to models/acl_decoder.pt"""
 import sys, json, time, copy, numpy as np, torch, torch.nn.functional as Fn
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from msam import model as get_model
 from acl_measure import measure
 torch.manual_seed(0)
-D = '/home/claude/acl_ext/emb'
+D = '/home/user/acl_ext/emb'
 E = np.load(f'{D}/cemrr_emb.npy', mmap_mode='r'); M = np.load(f'{D}/cemrr_masks.npy'); meta = json.load(open(f'{D}/cemrr_meta.json'))
 N = len(meta); E = np.asarray(E[:N], dtype=np.float16)   # kept fp16 in memory, cast per batch
 import os
@@ -103,8 +103,8 @@ if __name__ == '__main__':
                            length_err_pct_median=round(float(np.median(le) * 100), 1), width_err_pct_median=round(float(np.median(we) * 100), 1),
                            length_corr=round(float(np.corrcoef([x['len_pred'] for x in ok], [x['len_gt'] for x in ok])[0, 1]), 3),
                            width_corr=round(float(np.corrcoef([x['wid_pred'] for x in ok], [x['wid_gt'] for x in ok])[0, 1]), 3))
-        print(json.dumps(summ, indent=1)); json.dump(dict(summary=summ, per_image=allres), open(os.environ.get('CVOUT', '/home/claude/acl_ext/cv_results.json'), 'w'))
+        print(json.dumps(summ, indent=1)); json.dump(dict(summary=summ, per_image=allres), open(os.environ.get('CVOUT', '/home/user/acl_ext/cv_results.json'), 'w'))
     else:
         m = train([j for i in ids for j in idx_of[i]])
-        import os; os.makedirs('/home/claude/acl_ext/models', exist_ok=True)
-        torch.save(m.mask_decoder.state_dict(), os.environ.get('MODELOUT', '/home/claude/acl_ext/models/acl_decoder.pt')); print('saved')
+        import os; os.makedirs('/home/user/acl_ext/models', exist_ok=True)
+        torch.save(m.mask_decoder.state_dict(), os.environ.get('MODELOUT', '/home/user/acl_ext/models/acl_decoder.pt')); print('saved')

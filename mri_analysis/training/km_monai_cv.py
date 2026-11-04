@@ -3,7 +3,7 @@ binary (default): tear = partially or completely ruptured vs healthy.  GRADE=1: 
 Writes out-of-fold probabilities and fold weights.
 usage: [GRADE=1] python -I km_monai_cv.py [seed]"""
 import sys, os, json, time, numpy as np, torch
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from km_folds import folds, O
 from monai.networks.nets import resnet10
 from monai.transforms import Compose, RandFlip, RandAffine, RandGaussianNoise, RandAdjustContrast, RandScaleIntensity

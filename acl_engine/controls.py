@@ -1,6 +1,6 @@
 """Closed-loop zone controls (P6). Fiber-length targets iterate to tolerance.
 
-FIX (Claude): Muse's T1 version called PhaseField.constant_interval() and
+FIX: Muse's T1 version called PhaseField.constant_interval() and
 mean_lambda_interval(..., dy=) without a strand index; neither exists, so it
 crashed. This version uses the real paths.py API and measures each zone the same
 way the report does (whole zone, mean of the 3 strands).

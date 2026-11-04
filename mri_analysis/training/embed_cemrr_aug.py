@@ -2,7 +2,7 @@
 downsampled to 96-140 px (MRNet's ACL region is only ~110 px across) and a random contrast curve (sometimes inverted).
 usage: python -I embed_cemrr_aug.py DATA_DIR OUT_DIR"""
 import sys, os, glob, json, numpy as np, torch, torch.nn.functional as Fn
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from msam import embed
 from aug import curve, norm
 from PIL import Image

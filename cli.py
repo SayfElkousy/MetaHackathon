@@ -1,6 +1,6 @@
 """T1 CLI: build the scaffold, place it in a schematic knee, run checks, write STL + GLB + JSON.
 
-Written by Muse (N2, T1). Fixes by Claude are marked "FIX (Claude)".
+Written by Muse (N2, T1). Fixes are marked "FIX".
 Run:  python cli.py --request fixtures/acl_context_request.json --out outputs/acl
 Other code can call run_request(norm, mig, quality, out) directly (check.py does).
 """
@@ -68,7 +68,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
     equiv = phaseL / (math.pi / 3.0)
     events = find_crossings(pf, a, b, q, phase_offset, mirror, L)
     arcs = [arc_length_interval(0.0, L, pf, a, b, q, phase_offset, mirror, i) for i in range(3)]
-    # FIX (Claude): Muse's T1 measured fiber length on pf.constant_interval(), which does not
+    # FIX: Muse's T1 measured fiber length on pf.constant_interval(), which does not
     # exist. Measure the whole zone, mean of the 3 strands (same as the closed-loop solve).
     zlams = []
     for k, z in enumerate(zones):
@@ -188,7 +188,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
         cov_fem_anat = femoral_crescent_coverage(Ws_tib, Ts_tib, Ffem, side)
     tib_box_min = np.array([-37.5, -25.0, -10.0])
     tib_box_max = np.array([37.5, 25.0, 0.0])
-    # FIX (Claude): the ligament starts exactly on the plateau, so its first ring of points
+    # FIX: the ligament starts exactly on the plateau, so its first ring of points
     # always touched the tibia box and the check always warned. Ignore the first 0.5 mm.
     above = Pall[:, 2] > 0.5
     d_tib, inside_tib = dist_point_box(Pall[above], tib_box_min, tib_box_max)
@@ -208,7 +208,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
     tm["stl"] = time.time() - s1
     s1 = time.time()
     Vt, Ft = box_mesh(np.array([0.0, 0.0, -5.0]), np.array([75.0, 50.0, 10.0]))
-    # FIX (Claude): Muse placed the condyles at x = +/-15 mm with 12 mm radius (again in T1),
+    # FIX: Muse placed the condyles at x = +/-15 mm with 12 mm radius (again in T1),
     # leaving a 6 mm notch, so the ACL ran straight through the lateral condyle. Condyles moved
     # apart so the ACL sits in the notch and the femoral footprint lands on the lateral wall.
     lat_x = float(Ffem[0]) + 11.5 if side == "right" else float(Ffem[0]) - 11.5
@@ -345,7 +345,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
         {"check_id": "inclination", "status": "pass" if abs(sag_m - sag) < 0.1 and abs(cor_m - cor) < 0.1 else "fail",
          "threshold": 0.1, "actual": [sag_m, cor_m], "target": [sag, cor], "units": "deg", "method": "projection",
          "location": {}, "suggested_parameter_changes": []},
-        # FIX (Claude): Muse's T1 dropped the flare check; kept.
+        # FIX: Muse's T1 dropped the flare check; kept.
         {"check_id": "flare", "status": "pass" if abs(flare_m - flare) / flare < 0.02 else "fail",
          "threshold": 0.02, "actual": flare_m, "target": flare, "units": "ratio",
          "method": "footprint area / midsubstance area", "location": {}, "suggested_parameter_changes": []},
@@ -362,7 +362,7 @@ def run_request(norm, mig, quality, out, skip_stl=False):
         {"check_id": "tube_mold_feasible", "status": "pass" if gap_ok and gap_mm >= 1.7 else "warn",
          "threshold": 1.7, "actual": gap_mm, "units": "mm", "method": "two-wall rule",
          "location": {}, "suggested_parameter_changes": []},
-        # FIX (Claude): Muse's T1 dropped the bone-clearance check; kept.
+        # FIX: Muse's T1 dropped the bone-clearance check; kept.
         {"check_id": "bone_clearance_schematic", "status": "warn" if bool(inside_tib) else "pass",
          "threshold": 0.0, "actual": float(d_tib), "units": "mm", "method": "distance to tibia box, first 0.5 mm skipped",
          "location": {}, "suggested_parameter_changes": []},

@@ -70,5 +70,5 @@ result = KneeScan().load().analyze(d['vol'], d['spacing'])
 | `embed_cemrr.py`, `embed_cemrr_aug.py`, `aug.py`, `train_dec.py`, `msam.py` | MedSAM embeddings of the CEMRR expert ACL outlines and decoder fine-tuning with cross-validation |
 | `segformer_roi.py`, `embed_mrnet.py`, `infer_mrnet.py`, `viz_acl.py`, `km_on_mrnet.py` | Runs on MRNet (localizer, ACL outlines, external tear test) |
 
-They were run in a Claude workspace and use its absolute paths (`/home/claude/...`); change those to your data locations.
+They were run on a remote workspace and use its absolute paths (`/home/user/...`); change those to your data locations.
 Data sources: KneeMRI (Zenodo record 14789903), CEMRR kneeMRI-ACL (Google Drive link in their GitHub README), MRNet (Stanford).

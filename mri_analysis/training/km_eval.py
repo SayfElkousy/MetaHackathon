@@ -3,7 +3,7 @@ Reports AUC with 95% bootstrap CI, sensitivity/specificity at the Youden thresho
 pre-specified ensemble (mean percentile rank of all models). Writes km/km_results.json and km/km_predictions.csv.
 usage: python -I km_eval.py name=path.npy [name=path.npy ...]"""
 import sys, json, numpy as np, pandas as pd
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from km_folds import O
 from sklearn.metrics import roc_auc_score, roc_curve
 meta = json.load(open(f'{O}/km_meta.json')); y = np.array([m['y'] for m in meta]); grade = np.array([m['grade'] for m in meta])

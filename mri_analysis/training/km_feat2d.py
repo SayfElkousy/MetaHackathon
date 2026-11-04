@@ -3,7 +3,7 @@ Extractors: DINOv2-base (Meta, general images; CLS + mean patch token) and Biome
 Features are averaged over the three central ROI slices. Writes out-of-fold tear probabilities.
 usage: python -I km_feat2d.py"""
 import sys, json, numpy as np, torch
-sys.path.insert(0, '/home/claude/acl_ext')
+sys.path.insert(0, '/home/user/acl_ext')
 from km_folds import folds, O
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler

@@ -137,7 +137,7 @@ Each build writes these files to `outputs/<name>/`:
 
 1. Zip this folder (without `.venv` and `outputs`) and attach it to every new Muse chat.
 2. Paste the next prompt (see `MUSE_NEXT_PROMPT.md`) and the latest `check.py` summary.
-3. When Muse replies, have Claude apply the changes and run the checks before you build on
+3. When Muse replies, apply the changes and run the checks before you build on
    them. Muse can't run code, and past milestones each had bugs that stopped them working
    (see `REPORT.md`).
 4. Before each milestone is applied, the project is backed up to

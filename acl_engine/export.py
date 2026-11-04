@@ -7,9 +7,9 @@ from acl_engine.glb import write_glb  # noqa: F401  (re-exported; keeps colors +
 
 def write_stl(path, bodies, header=b"ACL scaffold STL mm"):
     """Binary STL in mm. bodies = list of (V (N,3), F (M,3)). 50-byte records."""
-    # FIX (Claude): Muse's T1 copy dropped the third corner (p2) of every triangle again,
+    # FIX: Muse's T1 copy dropped the third corner (p2) of every triangle again,
     # the same bug fixed in M1 and N2. Each record needs normal + 3 corners + attribute.
-    # FIX (Claude, speed): whole arrays at once instead of one struct.pack per triangle.
+    # FIX (speed): whole arrays at once instead of one struct.pack per triangle.
     # Output is byte-identical to the per-triangle version.
     rec = np.dtype([("n", "<f4", 3), ("p", "<f4", (3, 3)), ("attr", "<u2")])
     parts = []

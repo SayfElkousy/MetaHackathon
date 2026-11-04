@@ -3,7 +3,7 @@ usage: python viz_acl.py RESULTS_JSON "key,key,..." OUT_PNG [ncol]"""
 import sys, json, numpy as np, matplotlib
 matplotlib.use('Agg'); import matplotlib.pyplot as plt
 R = json.load(open(sys.argv[1])); keys = sys.argv[2].split(','); out = sys.argv[3]; ncol = int(sys.argv[4]) if len(sys.argv) > 4 else 4
-S = {f"{s['split']}_{s['id']}": s for s in json.load(open('/home/claude/viewer/scans.json'))}
+S = {f"{s['split']}_{s['id']}": s for s in json.load(open('/home/user/viewer/scans.json'))}
 nr = int(np.ceil(len(keys) / ncol))
 fig, ax = plt.subplots(nr, ncol * 2, figsize=(4.2 * ncol * 2, 4.4 * nr)); ax = np.atleast_2d(ax)
 for i, key in enumerate(keys):

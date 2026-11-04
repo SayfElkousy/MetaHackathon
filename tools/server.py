@@ -1,7 +1,7 @@
 """N3 local server. Stdlib only. 127.0.0.1 only.
 
 Run:  python tools/server.py      (opens http://127.0.0.1:8000/)
-Written by Muse (N3). Fixes by Claude are marked "FIX (Claude)".
+Written by Muse (N3). Fixes are marked "FIX".
 """
 import base64
 import copy
@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# FIX (Claude): "python tools/server.py" puts tools/ on the path, not the project root,
+# FIX: "python tools/server.py" puts tools/ on the path, not the project root,
 # so every build failed with "No module named acl_engine".
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -56,7 +56,7 @@ def _load_fixture_summary(path):
 
 
 def editable_request(req):
-    """FIX (Claude): upgrade an older design so every slider has a field to edit.
+    """FIX: upgrade an older design so every slider has a field to edit.
 
     Without this, sliders did nothing or crashed on the 2.0.0 fixtures (starter, pass):
     - fold depth: they use architecture.lift_mm, not architecture.fold.fold_depth_mm
@@ -411,7 +411,7 @@ class H(BaseHTTPRequestHandler):
         try:
             return validate_request(req)
         except (ValueError, KeyError, TypeError) as e:
-            # FIX (Claude): a missing key raised KeyError, which escaped as a dropped connection.
+            # FIX: a missing key raised KeyError, which escaped as a dropped connection.
             _send_json(self, 400, {"error": "%s: %s" % (type(e).__name__, e), "field": "request", "hint": "see validation message"})
             return None
 
@@ -426,7 +426,7 @@ class H(BaseHTTPRequestHandler):
             return
         norm, mig = v
         t0 = time.time()
-        # FIX (Claude): Muse used mkdtemp and never deleted it: one folder of files per slider move.
+        # FIX: Muse used mkdtemp and never deleted it: one folder of files per slider move.
         with BUILD_LOCK, tempfile.TemporaryDirectory(prefix="n3build_") as tmp:
             try:
                 res = run_request(norm, mig, quality, tmp, skip_stl=True)
@@ -479,7 +479,7 @@ class H(BaseHTTPRequestHandler):
             try:
                 run_request(norm, mig, "export", tmp)
             except Exception as e:
-                # FIX (Claude): errors here were not caught, so the browser got a dropped connection.
+                # FIX: errors here were not caught, so the browser got a dropped connection.
                 traceback.print_exc()
                 return _send_json(self, 500, {"error": "export failed: %s" % e, "field": "request", "hint": "see server log"})
             with open(os.path.join(tmp, "scaffold.stl"), "rb") as f:

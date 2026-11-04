@@ -88,7 +88,7 @@ class PhaseField:
             return (rr - rl) * float(quintic_d1(t)) / w
         return 0.0
 
-    # FIX (Claude, speed): rate_array / rate2_array looped over points in Python and were 85% of
+    # FIX (speed): rate_array / rate2_array looped over points in Python and were 85% of
     # every rebuild. Same rules as rate_scalar / rate2_scalar, done on whole arrays at once.
     def _windows_vec(self, ys):
         """Yields (mask, t, w, rl, rr) per blend window; earlier windows win, as in _window_at."""
@@ -131,7 +131,7 @@ def build_phase_field(request_norm):
     b = float(request_norm["architecture"]["lift_mm"])
     mode = request_norm["architecture"].get("angle_control_mode", "crossing_tilt")
     zones = request_norm["zones"]
-    # FIX (Claude): the N2 schema renames braid_tilt_target_deg -> braid_angle_deg; accept both
+    # FIX: the N2 schema renames braid_tilt_target_deg -> braid_angle_deg; accept both
     rates = [rate_for_theta(z.get("braid_angle_deg", z.get("braid_tilt_target_deg")), a, b, mode) for z in zones]
     lens = [float(z["length_mm"]) for z in zones]
     trans = float(request_norm["transitions"]["length_mm"])
@@ -277,7 +277,7 @@ def _find_crossings_m1(pf, a, b, phase_offset, mirror, L):
 
 
 # ---------------------------------------------------------------------------
-# N1 additions (written by Claude to match the interface Muse's N2 code uses;
+# N1 additions (written to match the interface Muse's N2 code uses;
 # Muse's N1 version of these functions was never shared).
 # ---------------------------------------------------------------------------
 from acl_engine import fold as _fold
@@ -346,7 +346,7 @@ def build_rates(norm, a, b, q, angle_mode):
             rates.append(math.pi / (3.0 * float(z["pitch_mm"])))
         else:
             raise ValueError("bad zone control %r" % ctl)
-    # FIX (Claude): rate_for_lambda assumes a full braid cycle at constant rate. A short zone
+    # FIX: rate_for_lambda assumes a full braid cycle at constant rate. A short zone
     # holds only part of a cycle, and the transition blends pull in the neighbors' rates, so
     # the realized fiber length missed the target (1.063 vs 1.060). Correct it by measuring the
     # actual zone (mean of the 3 strands) and adjusting each fiber_length zone's rate.
