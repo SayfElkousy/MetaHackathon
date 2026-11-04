@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 state_store/
 .DS_Store
+fixtures/imaging/
+.claude/

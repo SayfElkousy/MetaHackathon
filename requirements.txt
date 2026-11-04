@@ -2,3 +2,8 @@ numpy>=1.26
 scipy>=1.13
 matplotlib>=3.8
 pytest>=8.0
+# imaging workspace (imaging/)
+nibabel>=5.2
+pydicom>=3.0
+SimpleITK>=2.4
+pillow>=10

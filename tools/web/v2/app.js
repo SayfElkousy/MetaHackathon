@@ -1202,6 +1202,7 @@ async function build(quality) {
     if (seq !== S.seq) return;
     S.building = null; setStatus(null);
     badge('error', 'fail');
+    emit('acl:build-error', { seq, quality, status: e.status, errors: (e.body && e.body.errors) || null, message: String(e.message) });
     if (e.status === 422 && e.body && e.body.errors) {
       S.msgs = {}; e.body.errors.forEach(x => (S.msgs[x.param] = S.msgs[x.param] || []).push({ level: 'fail', text: x.message }));
       refreshMessages();
@@ -1233,6 +1234,7 @@ async function build(quality) {
   S.resolutions = null;
   if (quality === 'full') { S.dirty = false; S.lastFullHash = j.design_hash; }
   updateValidity(quality);
+  emit('acl:built', { seq, quality, server_ms: Math.round(tServer), geometry_ms: Math.round(tGeom), engine_s: j.timings_s.total, design_hash: j.design_hash, valid: !!(j.validity ? j.validity.valid : true) });
   S.inactiveLive = null;
   trackChanges();
   if (quality === 'full') S.layerFixes = null;
@@ -1396,8 +1398,10 @@ function gestureCommit(label) {
   refreshUndoButtons();
 }
 function applySnap(snap) {
+  const changed = Object.keys(snap.params).filter(k => JSON.stringify(snap.params[k]) !== JSON.stringify(S.state.params[k]));
   S.state.params = JSON.parse(JSON.stringify(snap.params));
   S.state.provenance = JSON.parse(JSON.stringify(snap.provenance));
+  emit('acl:param', { keys: changed, actor: 'undo' });
 }
 function doUndo() {
   const e = S.undoStack.pop();
@@ -1433,13 +1437,16 @@ function setParam(pid, value, opts) {
     S.state.params[t] = JSON.parse(JSON.stringify(value));
     const pv = Object.assign({}, provOf(t));
     if (pv.status !== 'override') pv.previous_status = pv.status;
-    pv.status = 'override'; pv.source = 'manual edit';
+    if (opts.prov) Object.assign(pv, opts.prov); else { pv.status = 'override'; pv.source = 'manual edit'; }
     S.state.provenance[t] = pv;
   }
-  if (!opts.noHistory) S.state.history.push({ action: 'edit', param: pid, from: old, to: value, actor: 'user', t: new Date().toISOString() });
+  if (!opts.noHistory) S.state.history.push({ action: 'edit', param: pid, from: old, to: value, actor: opts.actor || 'user', t: new Date().toISOString(), ...(opts.txid ? { txid: opts.txid } : {}) });
   S.dirty = true;
-  afterEdit(opts.preview);
+  emit('acl:param', { keys: targets, actor: opts.actor || 'user' });
+  if (!opts.noBuild) afterEdit(opts.preview);
 }
+// Events for the workspace (Muse, linked views): parameter changes and build results.
+function emit(type, detail) { try { window.dispatchEvent(new CustomEvent(type, { detail })); } catch (e) { /* ignore */ } }
 function setDisplay(k, v, rebuild) { S.state.display[k] = v; persist(); if (rebuild) scheduleBuild('preview', 80); }
 function afterEdit(preview) {
   updateControlState(); persist();
@@ -1457,12 +1464,13 @@ function resetParam(pid) {
   gestureStart();
   S.state.history.push({ action: 'reset', param: pid, from: S.state.params[pid], to: val, t: new Date().toISOString() });
   S.state.params[pid] = JSON.parse(JSON.stringify(val)); S.state.provenance[pid] = JSON.parse(JSON.stringify(pv));
+  emit('acl:param', { keys: [pid], actor: 'user' });
   gestureCommit('reset ' + spec.label);
   S.dirty = true;
   renderControls(); afterEdit(false);
 }
 function resetAll() { gestureStart(); Object.keys(S.regById).forEach(pid => { const imp = S.state.imported; S.state.params[pid] = JSON.parse(JSON.stringify(imp && pid in imp.params ? imp.params[pid] : S.regById[pid].default)); if (imp && pid in imp.provenance) S.state.provenance[pid] = JSON.parse(JSON.stringify(imp.provenance[pid])); });
-  S.state.history.push({ action: 'reset_all', t: new Date().toISOString() }); gestureCommit('reset all'); S.dirty = true; renderControls(); afterEdit(false); }
+  S.state.history.push({ action: 'reset_all', t: new Date().toISOString() }); emit('acl:param', { keys: Object.keys(S.regById), actor: 'user' }); gestureCommit('reset all'); S.dirty = true; renderControls(); afterEdit(false); }
 
 // ------------------------------------------------------------------ persistence (tabs, refresh, links)
 function persist() {
@@ -2385,13 +2393,14 @@ function renderObjList() {
     'layer_sheath', 'layer_interface', 'layer_braid', 'layer_channels', 'layer_coating', 'layer_grooves', 'layer_end', 'layer_footprint', 'layer_plug', 'layer_pores', 'layer_anchors'];
   const objs = S.scene.objects.slice().sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
   objs.forEach(meta => {
-    const row = document.createElement('div'); row.className = 'objrow';
+    const row = document.createElement('div'); row.className = 'objrow'; row.dataset.obj = meta.id;
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = S.vis[meta.id]; cb.setAttribute('aria-label', 'show ' + meta.label);
     cb.onchange = () => { S.vis[meta.id] = cb.checked; const o = S.objects.get(meta.id); if (o) o.visible = cb.checked; invalidate(); saveView(); };
     const lab = document.createElement('span'); lab.innerHTML = `${meta.label} <span class="chip ${meta.status.replace(' ', '_')}" title="${(meta.note || '').replace(/"/g, '&quot;')}">${meta.status}</span>`;
     const op = document.createElement('input'); op.type = 'range'; op.min = 0.05; op.max = 1; op.step = 0.05; op.value = S.opac[meta.id]; op.title = 'opacity';
     op.oninput = () => { S.opac[meta.id] = Number(op.value); const o = S.objects.get(meta.id); if (o) matOptsFor(o); invalidate(); saveView(); };
     const nb = document.createElement('span'); nb.className = 'muted small'; nb.textContent = meta.kind === 'mesh' ? '' : meta.n_lines;
+    cb.dataset.ctl = 'obj.' + meta.id + '.visible'; op.dataset.ctl = 'obj.' + meta.id + '.opacity';
     row.append(cb, lab, op, nb); box.appendChild(row);
   });
 }
@@ -2399,15 +2408,15 @@ function saveView() { try { localStorage.setItem('acl.v2.view', JSON.stringify({
 
 function renderDisplayControls() {
   const d = S.state.display; const box = $('displayCtl'); box.innerHTML = '';
-  const add = (label, el) => { const r = document.createElement('div'); r.className = 'row'; const l = document.createElement('label'); l.textContent = label; l.style.flex = '1'; r.append(l, el); box.appendChild(r); };
+  const add = (label, el, key) => { if (key) el.dataset.ctl = key; const r = document.createElement('div'); r.className = 'row'; const l = document.createElement('label'); l.textContent = label; l.style.flex = '1'; r.append(l, el); box.appendChild(r); };
   const sel = (opts, val, fn) => { const s = document.createElement('select'); opts.forEach(o => { const op = document.createElement('option'); const pair = Array.isArray(o); op.value = pair ? o[0] : o; op.textContent = pair ? o[1] : o; s.appendChild(op); }); s.value = val; s.onchange = () => fn(s.value); return s; };
   const num = (min, max, step, val, fn) => { const n = document.createElement('input'); n.type = 'range'; n.min = min; n.max = max; n.step = step; n.value = val; n.onchange = () => fn(Number(n.value)); return n; };
-  add('Colour by', sel([['anatomy', 'structural'], ['material', 'material'], ['family', 'family'], ['status', 'status']], S.colorMode, v => { S.colorMode = v; clearMatCache(); rebuildSceneObjects(); renderLegend(); }));
-  add('Fiber rendering', sel(['auto', 'lines', 'tubes', 'hidden'], d.fiber_mode, v => { setDisplay('fiber_mode', v); rebuildSceneObjects(); }));
-  add('Native fibers shown per fascicle', num(1, 19, 1, d.native_fibers_per_fascicle, v => setDisplay('native_fibers_per_fascicle', v, true)));
-  add('Scaffold fibers shown per yarn', num(1, 19, 1, d.scaffold_fibers_per_yarn, v => setDisplay('scaffold_fibers_per_yarn', v, true)));
-  add('Crimp drawn at × (display)', num(1, 60, 1, d.crimp_exaggeration, v => setDisplay('crimp_exaggeration', v, true)));
-  add('Exploded view (mm)', num(0, 25, 1, d.exploded || 0, v => { setDisplay('exploded', v); applyExploded(); }));
+  add('Colour by', sel([['anatomy', 'structural'], ['material', 'material'], ['family', 'family'], ['status', 'status']], S.colorMode, v => { S.colorMode = v; clearMatCache(); rebuildSceneObjects(); renderLegend(); }), 'view.color_mode');
+  add('Fiber rendering', sel(['auto', 'lines', 'tubes', 'hidden'], d.fiber_mode, v => { setDisplay('fiber_mode', v); rebuildSceneObjects(); }), 'display.fiber_mode');
+  add('Native fibers shown per fascicle', num(1, 19, 1, d.native_fibers_per_fascicle, v => setDisplay('native_fibers_per_fascicle', v, true)), 'display.native_fibers_per_fascicle');
+  add('Scaffold fibers shown per yarn', num(1, 19, 1, d.scaffold_fibers_per_yarn, v => setDisplay('scaffold_fibers_per_yarn', v, true)), 'display.scaffold_fibers_per_yarn');
+  add('Crimp drawn at × (display)', num(1, 60, 1, d.crimp_exaggeration, v => setDisplay('crimp_exaggeration', v, true)), 'display.crimp_exaggeration');
+  add('Exploded view (mm)', num(0, 25, 1, d.exploded || 0, v => { setDisplay('exploded', v); applyExploded(); }), 'view.explode');
   const n = document.createElement('p'); n.className = 'note'; n.textContent = 'Representative density and crimp magnification change only what is drawn, never the design or exports (the design hash stays the same).'; box.appendChild(n);
   if (VIEW_MODE) { const f = document.createElement('label'); f.innerHTML = '<input type="checkbox" id="follow" checked> Follow changes from the designer tab'; box.appendChild(f); }
 }
@@ -2961,6 +2970,10 @@ async function boot() {
   }
   afterLoad(); persist();
 }
-window.__app = { cam: () => cam, ctl: () => ctl, root: () => root, objects: () => S.objects, renderSection, requestSection, S, setParam, setCam, build, perf, openCase, openDetail, showTab, scene: () => scene, renderer: () => ren, saveRemote, showGuide, focusGuide, highlightForParam, doUndo, doRedo, waitForSettled, gestureCommit,
+function setSceneBackground(hex) { if (scene) { scene.background = new THREE.Color(hex); invalidate(); } }
+window.__app = { gestureStart, applySnap, afterEdit, renderControls, DEPENDENT, derivedValue, setDisplay, setLevelMode, selectLevel, isolateLevel, focusLevel,
+  applyAclOverlay, applyBoneOverlay, saveView, refreshLevelView, renderObjList, setSceneBackground, invalidate, COMP_DEFS, toggleLongCut, updateClip,
+  refreshUndoButtons, resetParam, provOf, renderClipControls, renderSectionControls, updateSlab, matOptsFor, setClipPlanes, renderDisplayControls, rebuildSceneObjects, applyExploded, clearMatCache, renderLegend, renderData,
+  cam: () => cam, ctl: () => ctl, root: () => root, objects: () => S.objects, renderSection, requestSection, S, setParam, setCam, build, perf, openCase, openDetail, showTab, scene: () => scene, renderer: () => ren, saveRemote, showGuide, focusGuide, highlightForParam, doUndo, doRedo, waitForSettled, gestureCommit,
   setBuilder, selectComponent, fitScaffold, frameBox, toggleComp, isolateComp, focusComp, restoreBuilderView, renderCompTree, refreshObject, compDef };
 boot().catch(e => showErr('Could not start the designer', String(e && e.stack || e), [['Reload', () => location.reload()]]));
